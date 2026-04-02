@@ -212,8 +212,8 @@ function SheetAdapter_countVotes(sessionId, questionId) {
   var participants = {};
   for (var i = 1; i < data.length; i++) {
     if (data[i][1] === sessionId && data[i][2] === questionId) {
-      if (data[i][4] === 1) r1++;
-      if (data[i][4] === 2) r2++;
+            if (parseInt(data[i][4], 10) === 1) r1++;
+            if (parseInt(data[i][4], 10) === 2) r2++;
       participants[data[i][3]] = true;
     }
   }
