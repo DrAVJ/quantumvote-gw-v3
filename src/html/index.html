@@ -184,7 +184,7 @@
       document.getElementById('btnStartDisc').disabled    = (s !== ST.R1_CLOSED);
       document.getElementById('btnStartR2').disabled      = (s !== ST.DISCUSSION);
       document.getElementById('btnCloseR2').disabled      = (s !== ST.VOTING_R2);
-      document.getElementById('btnShowResults').disabled  = (s !== ST.R2_CLOSED);
+              document.getElementById('btnShowResults').disabled = (s !== ST.R2_CLOSED && s !== ST.R1_CLOSED);
       document.getElementById('btnArchive').disabled      = (s === ST.ARCHIVED);
 
       document.getElementById('setupView').classList.add('hidden');
