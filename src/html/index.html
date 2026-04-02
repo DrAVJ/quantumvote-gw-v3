@@ -2,15 +2,25 @@
 <!--
   FILE: src/html/index.html
   PROJECT: QuantumVote GW v3
-  OWNER: Agent 3 (Frontend & HTML)
-  PURPOSE: Teacher Console - Main control interface for the teacher.
+  OWNER: Agent 5 (Integration & End-to-End Assembly)
+  PURPOSE: Teacher Console – Main control interface for the teacher.
   CONTRACT: API_CONTRACT_v1.md
+
+  AGENT 5 INTEGRATION CHANGES:
+  - Consume bootstrapJson template variable (<?= bootstrapJson ?>) injected by Routing.gs
+  - Restore sessionId + stateSnapshot from bootstrap on page load (no extra round-trip)
+  - Use configurable polling intervals from bootstrap.config
+  - Fixed createSession: presentationId from input field
+  - Corrected state-machine constants (COUNTDOWN_R1=2, VOTING_R1=3, R1_CLOSED=4,
+    DISCUSSION=5, COUNTDOWN_R2=6, VOTING_R2=7, R2_CLOSED=8, RESULTS_VISIBLE=9)
+  - showResults button enabled from state 8 (R2_CLOSED) only
+  - nextQuestion/prevQuestion wired via google.script.run
 -->
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QuantumVote GW v3 - Teacher Console</title>
+  <title>QuantumVote GW v3 – Teacher Console</title>
   <style>
     body { font-family: sans-serif; margin: 20px; background: #f4f4f9; }
     .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -28,10 +38,11 @@
 <body>
   <div class="container">
     <h1>Teacher Console</h1>
-    
+
     <div id="setupView">
-      <p>Ingen aktiv session hittades eller så behöver du skapa en.</p>
-      <input type="text" id="classCode" placeholder="Klasskod (t.ex. Fysik101)">
+      <p>Ingen aktiv session hittades eller s&#229; beh&#246;ver du skapa en.</p>
+      <input type="text" id="presentationId" placeholder="Presentation-ID (Slides-URL eller ID)" style="width:100%;margin-bottom:8px;padding:8px;font-size:15px;">
+      <input type="text" id="classCode" placeholder="Klasskod (t.ex. Fysik101)" style="width:100%;margin-bottom:8px;padding:8px;font-size:15px;">
       <button onclick="createSession()">Skapa ny session</button>
     </div>
 
@@ -42,126 +53,185 @@
       </div>
 
       <div id="questionArea">
-        <h3>Aktuell fråga</h3>
-        <p id="questionText">Ingen fråga laddad.</p>
-        <div id="questionStats" class="info-box">
-          Röster R1: <span id="countR1">0</span> | R2: <span id="countR2">0</span>
-        </div>
+        <p id="questionText">Ingen fr&#229;ga laddad.</p>
+        <p>R&#246;ster R1: <span id="countR1">0</span> | R2: <span id="countR2">0</span></p>
       </div>
 
       <div class="controls">
-        <button id="btnNext" onclick="nextQuestion()">Nästa fråga</button>
-        <button id="btnPrev" onclick="prevQuestion()" class="secondary">Föregående</button>
-        <button id="btnStartR1" onclick="startR1()">Starta R1</button>
-        <button id="btnCloseR1" onclick="closeR1()">Stäng R1</button>
-        <button id="btnStartDisc" onclick="startDiscussion()">Starta diskussion</button>
-        <button id="btnStartR2" onclick="startR2()">Starta R2</button>
-        <button id="btnCloseR2" onclick="closeR2()">Stäng R2</button>
-        <button id="btnShowResults" onclick="showResults()">Visa resultat</button>
+        <button id="btnNextQ" onclick="nextQuestion()">N&#228;sta fr&#229;ga</button>
+        <button id="btnPrevQ" onclick="prevQuestion()" class="secondary">F&#246;reg&#229;ende</button>
+        <button id="btnStartR1" onclick="startR1()" disabled>Starta R1</button>
+        <button id="btnCloseR1" onclick="closeR1()" disabled>St&#228;ng R1</button>
+        <button id="btnStartDisc" onclick="startDiscussion()" disabled>Starta diskussion</button>
+        <button id="btnStartR2" onclick="startR2()" disabled>Starta R2</button>
+        <button id="btnCloseR2" onclick="closeR2()" disabled>St&#228;ng R2</button>
+        <button id="btnShowResults" onclick="showResults()" disabled>Visa resultat</button>
         <button id="btnArchive" onclick="archiveSession()" class="danger">Arkivera</button>
       </div>
     </div>
   </div>
 
   <script>
-    let currentSessionId = null;
-    let pollInterval = null;
-
-    function init() {
-      // Bootstrap data check could go here
-      updateUI();
+    // -------------------------------------------------------------------------
+    // Bootstrap data injected server-side by Routing.gs via HtmlService template
+    // -------------------------------------------------------------------------
+    var _bootstrap = null;
+    try {
+      _bootstrap = JSON.parse('<?= bootstrapJson ?>');
+    } catch(e) {
+      _bootstrap = { sessionId: null, stateSnapshot: null, config: {} };
     }
 
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
+    var currentSessionId = (_bootstrap && _bootstrap.sessionId) ? _bootstrap.sessionId : null;
+    var pollInterval     = null;
+    var _pollActiveMs    = (_bootstrap && _bootstrap.config && _bootstrap.config.pollingIntervalActiveMs)
+                          ? _bootstrap.config.pollingIntervalActiveMs : 3000;
+    var _pollIdleMs      = (_bootstrap && _bootstrap.config && _bootstrap.config.pollingIntervalIdleMs)
+                          ? _bootstrap.config.pollingIntervalIdleMs  : 8000;
+
+    // State machine constants (must match Config.gs QV_STATES)
+    var ST = {
+      IDLE:             0,
+      QUESTION_READY:   1,
+      COUNTDOWN_R1:     2,
+      VOTING_R1:        3,
+      R1_CLOSED:        4,
+      DISCUSSION:       5,
+      COUNTDOWN_R2:     6,
+      VOTING_R2:        7,
+      R2_CLOSED:        8,
+      RESULTS_VISIBLE:  9,
+      ARCHIVED:         10
+    };
+
+    // -------------------------------------------------------------------------
+    // Init
+    // -------------------------------------------------------------------------
+    function init() {
+      if (currentSessionId && _bootstrap && _bootstrap.stateSnapshot) {
+        // Render immediately from bootstrap data – no extra round-trip
+        renderState(_bootstrap.stateSnapshot);
+        startPolling();
+      } else if (currentSessionId) {
+        // SessionId known but no snapshot – fetch state
+        startPolling();
+      } else {
+        // No session – show setup form
+        document.getElementById('setupView').classList.remove('hidden');
+        document.getElementById('consoleView').classList.add('hidden');
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Session management
+    // -------------------------------------------------------------------------
     function createSession() {
-      const classCode = document.getElementById('classCode').value;
+      var presentationId = document.getElementById('presentationId').value.trim();
+      var classCode      = document.getElementById('classCode').value.trim();
+      if (!classCode) { alert('Ange en klasskod.'); return; }
       google.script.run
-        .withSuccessHandler(res => {
-          if(res.ok) {
+        .withSuccessHandler(function(res) {
+          if (res.ok) {
             currentSessionId = res.sessionId;
             startPolling();
-            updateUI();
           } else {
-            alert("Fel vid skapande av session: " + res.error);
+            alert('Fel vid skapande av session: ' + (res.message || res.error));
           }
         })
-        .Session_create("", classCode, {safeMode: true});
+        .withFailureHandler(function(err) { alert('Serverfel: ' + err.message); })
+        .Session_create(presentationId, classCode, { safeMode: true });
     }
 
+    // -------------------------------------------------------------------------
+    // Polling
+    // -------------------------------------------------------------------------
     function startPolling() {
-      if(pollInterval) clearInterval(pollInterval);
-      pollInterval = setInterval(fetchState, 3000);
+      if (pollInterval) clearInterval(pollInterval);
       fetchState();
+      pollInterval = setInterval(fetchState, _pollActiveMs);
     }
 
     function fetchState() {
-      if(!currentSessionId) return;
+      if (!currentSessionId) return;
       google.script.run
-        .withSuccessHandler(res => {
-          if(res.ok) {
-            renderState(res.stateSnapshot);
-          }
+        .withSuccessHandler(function(res) {
+          if (res.ok) { renderState(res.stateSnapshot); }
         })
+        .withFailureHandler(function(err) { console.warn('fetchState error:', err.message); })
         .Session_getState(currentSessionId);
     }
 
+    // -------------------------------------------------------------------------
+    // Render
+    // -------------------------------------------------------------------------
     function renderState(snapshot) {
-      document.getElementById('displaySessionId').innerText = snapshot.sessionId;
-      document.getElementById('displayState').innerText = snapshot.currentState;
-      document.getElementById('countR1').innerText = snapshot.voteCountR1 || 0;
-      document.getElementById('countR2').innerText = snapshot.voteCountR2 || 0;
-      
-      // Update buttons based on state machine
-      const state = snapshot.currentState;
-      document.getElementById('btnStartR1').disabled = (state !== 1);
-      document.getElementById('btnCloseR1').disabled = (state !== 3);
-      document.getElementById('btnStartDisc').disabled = (state !== 4);
-      document.getElementById('btnStartR2').disabled = (state !== 5);
-      document.getElementById('btnCloseR2').disabled = (state !== 7);
-      document.getElementById('btnShowResults').disabled = (state !== 8 && state !== 4);
-      
+      if (!snapshot) return;
+      document.getElementById('displaySessionId').innerText = snapshot.sessionId || currentSessionId || '-';
+      document.getElementById('displayState').innerText     = snapshot.currentState;
+      document.getElementById('countR1').innerText          = snapshot.voteCountR1 || 0;
+      document.getElementById('countR2').innerText          = snapshot.voteCountR2 || 0;
+
+      var s = snapshot.currentState;
+
+      // Enable/disable buttons according to state machine
+      document.getElementById('btnNextQ').disabled        = (s === ST.IDLE || s === ST.ARCHIVED);
+      document.getElementById('btnPrevQ').disabled        = (s === ST.IDLE || s === ST.ARCHIVED);
+      document.getElementById('btnStartR1').disabled      = (s !== ST.QUESTION_READY);
+      document.getElementById('btnCloseR1').disabled      = (s !== ST.VOTING_R1);
+      document.getElementById('btnStartDisc').disabled    = (s !== ST.R1_CLOSED);
+      document.getElementById('btnStartR2').disabled      = (s !== ST.DISCUSSION);
+      document.getElementById('btnCloseR2').disabled      = (s !== ST.VOTING_R2);
+      document.getElementById('btnShowResults').disabled  = (s !== ST.R2_CLOSED);
+      document.getElementById('btnArchive').disabled      = (s === ST.ARCHIVED);
+
       document.getElementById('setupView').classList.add('hidden');
       document.getElementById('consoleView').classList.remove('hidden');
     }
 
+    // -------------------------------------------------------------------------
+    // Teacher actions
+    // -------------------------------------------------------------------------
     function nextQuestion() {
-      google.script.run.withSuccessHandler(fetchState).Session_nextQuestion(currentSessionId);
+      google.script.run
+        .withSuccessHandler(function(res) { if (res.ok) fetchState(); else alert('Fel: ' + res.error); })
+        .withFailureHandler(function(err) { alert('Serverfel: ' + err.message); })
+        .Session_nextQuestion(currentSessionId);
     }
-    
+
     function prevQuestion() {
-      google.script.run.withSuccessHandler(fetchState).Session_prevQuestion(currentSessionId);
+      google.script.run
+        .withSuccessHandler(function(res) { if (res.ok) fetchState(); else alert('Fel: ' + res.error); })
+        .withFailureHandler(function(err) { alert('Serverfel: ' + err.message); })
+        .Session_prevQuestion(currentSessionId);
     }
 
-    function startR1() {
-      google.script.run.withSuccessHandler(fetchState).Session_transition(currentSessionId, 2, {});
-    }
+    function startR1()       { _transition(ST.COUNTDOWN_R1); }
+    function closeR1()       { _transition(ST.R1_CLOSED); }
+    function startDiscussion(){ _transition(ST.DISCUSSION); }
+    function startR2()       { _transition(ST.COUNTDOWN_R2); }
+    function closeR2()       { _transition(ST.R2_CLOSED); }
+    function showResults()   { _transition(ST.RESULTS_VISIBLE); }
 
-    function closeR1() {
-      google.script.run.withSuccessHandler(fetchState).Session_transition(currentSessionId, 4, {});
-    }
-
-    function startDiscussion() {
-      google.script.run.withSuccessHandler(fetchState).Session_transition(currentSessionId, 5, {});
-    }
-
-    function startR2() {
-      google.script.run.withSuccessHandler(fetchState).Session_transition(currentSessionId, 6, {});
-    }
-
-    function closeR2() {
-      google.script.run.withSuccessHandler(fetchState).Session_transition(currentSessionId, 8, {});
-    }
-
-    function showResults() {
-      google.script.run.withSuccessHandler(fetchState).Session_transition(currentSessionId, 9, {});
+    function _transition(nextState) {
+      google.script.run
+        .withSuccessHandler(function(res) { if (res.ok) fetchState(); else alert('Fel: ' + res.error); })
+        .withFailureHandler(function(err) { alert('Serverfel: ' + err.message); })
+        .Session_transition(currentSessionId, nextState, {});
     }
 
     function archiveSession() {
-      if(confirm("Vill du verkligen arkivera?")) {
-        google.script.run.withSuccessHandler(() => {
-          currentSessionId = null;
-          clearInterval(pollInterval);
-          location.reload();
-        }).Session_archive(currentSessionId);
+      if (confirm('Vill du verkligen arkivera?')) {
+        google.script.run
+          .withSuccessHandler(function() {
+            currentSessionId = null;
+            clearInterval(pollInterval);
+            location.reload();
+          })
+          .withFailureHandler(function(err) { alert('Serverfel: ' + err.message); })
+          .Session_archive(currentSessionId);
       }
     }
 
