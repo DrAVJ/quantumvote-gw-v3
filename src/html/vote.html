@@ -179,8 +179,7 @@
         msg.innerText = 'Diskutera med din granne!';
       } else if (state === ST.RESULTS_VISIBLE) {
         // Redirect to results view
-        window.location.href = ScriptApp ? '?view=results&sessionId=' + sessionId
-                                         : window.location.href.replace(/view=[^&]*/, 'view=results');
+          window.location.href = '?view=results&sessionId=' + sessionId;
       } else {
         badge.innerText = 'VÄNTAR';
         badge.className = 'status-badge status-waiting';
