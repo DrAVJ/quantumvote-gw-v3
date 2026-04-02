@@ -1,0 +1,36 @@
+# QuantumVote GW v3 – .gitignore
+# ============================================================
+
+# clasp credentials (NEVER commit – contains OAuth tokens)
+.clasprc.json
+.clasp.json
+
+# Node / npm (if using local tooling)
+node_modules/
+npm-debug.log*
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment / secrets
+.env
+.env.*
+secrets.json
+
+# Build / dist output (if applicable)
+dist/
+build/
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.tmp
