@@ -2,26 +2,34 @@
 <!--
   FILE: src/html/vote.html
   PROJECT: QuantumVote GW v3
-  OWNER: Agent 3 (Frontend & HTML)
-  PURPOSE: Student Vote App - Mobile-first voting interface.
+  OWNER: Agent 5 (Integration & End-to-End Assembly)
+  PURPOSE: Student Vote App – Mobile-first voting interface.
   CONTRACT: API_CONTRACT_v1.md
+
+  AGENT 5 INTEGRATION CHANGES:
+  - sessionId now read from bootstrapJson (injected by Routing.gs), NOT from URLSearchParams
+    (URLSearchParams does not work with Apps Script HtmlService web apps)
+  - participantId preserved from bootstrap if available
+  - State machine constants extracted to ST object (matches Config.gs QV_STATES)
+  - State 9 (RESULTS_VISIBLE) redirects to results view via google.script.run + window.location
+  - Polling interval uses bootstrap.config.pollingIntervalActiveMs
 -->
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rösta - QuantumVote GW v3</title>
+  <title>R&#246;sta – QuantumVote GW v3</title>
   <style>
     body { font-family: sans-serif; margin: 0; padding: 15px; background: #fafafa; color: #333; }
     .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
     h1 { font-size: 1.5rem; margin-top: 0; }
     .status-badge { display: inline-block; padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; margin-bottom: 15px; }
     .status-waiting { background: #ffeeba; color: #856404; }
-    .status-active { background: #d4edda; color: #155724; }
-    .status-closed { background: #f8d7da; color: #721c24; }
+    .status-active  { background: #d4edda; color: #155724; }
+    .status-closed  { background: #f8d7da; color: #721c24; }
     .vote-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
     .vote-btn { aspect-ratio: 1/1; font-size: 2rem; font-weight: bold; border: 2px solid #007bff; border-radius: 12px; background: white; color: #007bff; cursor: pointer; transition: 0.2s; }
-    .vote-btn:active { background: #007bff; color: white; }
+    .vote-btn:active   { background: #007bff; color: white; }
     .vote-btn.selected { background: #007bff; color: white; }
     .vote-btn:disabled { border-color: #ccc; color: #ccc; cursor: not-allowed; }
     #message { margin-top: 20px; font-weight: bold; text-align: center; }
@@ -32,12 +40,12 @@
 <body>
   <div class="card">
     <div id="loading" class="loader">Laddar session...</div>
-    
+
     <div id="mainView" class="hidden">
-      <div id="statusBadge" class="status-badge">Väntar...</div>
-      <h1 id="questionTitle">Väntar på fråga</h1>
+      <div id="statusBadge" class="status-badge">V&#228;ntar...</div>
+      <h1>V&#228;ntar p&#229; fr&#229;ga</h1>
       <p id="questionPrompt"></p>
-      
+
       <div id="votingArea" class="hidden">
         <div class="vote-buttons">
           <button class="vote-btn" onclick="submitVote('A')">A</button>
@@ -54,114 +62,148 @@
   </div>
 
   <script>
-    let sessionId = new URLSearchParams(window.location.search).get('sessionId');
-    let participantId = null;
-    let currentRound = 0;
-    let hasVoted = false;
-    let lastVotedAnswer = null;
+    // -------------------------------------------------------------------------
+    // Bootstrap data injected server-side by Routing.gs
+    // -------------------------------------------------------------------------
+    var _bootstrap = null;
+    try {
+      _bootstrap = JSON.parse('<?= bootstrapJson ?>');
+    } catch(e) {
+      _bootstrap = { sessionId: null, stateSnapshot: null, config: {} };
+    }
+
+    // State machine constants (must match Config.gs QV_STATES)
+    var ST = {
+      IDLE:             0,
+      QUESTION_READY:   1,
+      COUNTDOWN_R1:     2,
+      VOTING_R1:        3,
+      R1_CLOSED:        4,
+      DISCUSSION:       5,
+      COUNTDOWN_R2:     6,
+      VOTING_R2:        7,
+      R2_CLOSED:        8,
+      RESULTS_VISIBLE:  9,
+      ARCHIVED:         10
+    };
+
+    var sessionId     = (_bootstrap && _bootstrap.sessionId)  ? _bootstrap.sessionId  : null;
+    var participantId = null;
+    var currentRound  = 0;
+    var hasVoted      = false;
+    var lastVotedAnswer = null;
+    var _pollMs = (_bootstrap && _bootstrap.config && _bootstrap.config.pollingIntervalActiveMs)
+                 ? _bootstrap.config.pollingIntervalActiveMs : 2000;
 
     function init() {
-      if(!sessionId) {
-        document.getElementById('loading').innerText = "Ingen session angiven.";
+      if (!sessionId) {
+        document.getElementById('loading').innerText = 'Ingen session angiven.';
         return;
       }
-      
       google.script.run
-        .withSuccessHandler(res => {
-          if(res.ok) {
+        .withSuccessHandler(function(res) {
+          if (res.ok) {
             participantId = res.participantId;
+            // Use bootstrap snapshot for immediate render if available
+            if (_bootstrap && _bootstrap.stateSnapshot) {
+              updateUI(_bootstrap.stateSnapshot);
+            }
             startPolling();
           } else {
-            alert("Kunde inte registrera deltagare.");
+            alert('Kunde inte registrera deltagare.');
           }
         })
-        .Vote_registerParticipant(sessionId, "student");
+        .withFailureHandler(function(err) { alert('Serverfel: ' + err.message); })
+        .Vote_registerParticipant(sessionId, 'student');
     }
 
     function startPolling() {
-      setInterval(fetchState, 2000);
+      setInterval(fetchState, _pollMs);
       fetchState();
     }
 
     function fetchState() {
       google.script.run
-        .withSuccessHandler(res => {
-          if(res.ok) {
-            updateUI(res.stateSnapshot);
-          }
+        .withSuccessHandler(function(res) {
+          if (res.ok) { updateUI(res.stateSnapshot); }
         })
+        .withFailureHandler(function(err) { console.warn('fetchState error:', err.message); })
         .Session_getState(sessionId);
     }
 
     function updateUI(snapshot) {
+      if (!snapshot) return;
       document.getElementById('loading').classList.add('hidden');
       document.getElementById('mainView').classList.remove('hidden');
 
-      const state = snapshot.currentState;
-      const round = (state === 3 || state === 4) ? 1 : (state === 7 || state === 8) ? 2 : 0;
-      
+      var state = snapshot.currentState;
+      var round = (state === ST.VOTING_R1 || state === ST.R1_CLOSED || state === ST.COUNTDOWN_R1) ? 1
+                : (state === ST.VOTING_R2 || state === ST.R2_CLOSED || state === ST.COUNTDOWN_R2) ? 2
+                : 0;
+
       // Reset vote state if round changes
-      if(round !== currentRound) {
+      if (round !== currentRound) {
         currentRound = round;
         hasVoted = false;
         lastVotedAnswer = null;
-        document.querySelectorAll('.vote-btn').forEach(b => b.classList.remove('selected'));
+        document.querySelectorAll('.vote-btn').forEach(function(b) { b.classList.remove('selected'); });
       }
 
-      const badge = document.getElementById('statusBadge');
-      const votingArea = document.getElementById('votingArea');
-      const feedbackArea = document.getElementById('feedbackArea');
-      const msg = document.getElementById('message');
+      var badge       = document.getElementById('statusBadge');
+      var votingArea  = document.getElementById('votingArea');
+      var feedbackArea= document.getElementById('feedbackArea');
+      var msg         = document.getElementById('message');
 
-      if(state === 3 || state === 7) {
-        badge.innerText = "OMRÖSTNING PÅGÅR (Omgång " + (state === 3 ? 1 : 2) + ")";
-        badge.className = "status-badge status-active";
-        votingArea.classList.remove('hidden');
-        feedbackArea.classList.add('hidden');
-        
-        if(hasVoted) {
+      if (state === ST.VOTING_R1 || state === ST.VOTING_R2) {
+        badge.innerText   = 'OMRÖSTNING P&#197;G&#197;R (Omg&#229;ng ' + round + ')';
+        badge.className   = 'status-badge status-active';
+        if (hasVoted) {
           votingArea.classList.add('hidden');
           feedbackArea.classList.remove('hidden');
-          msg.innerText = "Röst registrerad: " + lastVotedAnswer;
+          msg.innerText = 'R&#246;st registrerad: ' + lastVotedAnswer;
+        } else {
+          votingArea.classList.remove('hidden');
+          feedbackArea.classList.add('hidden');
         }
-      } else if(state === 4 || state === 8) {
-        badge.innerText = "RÖSTNING STÄNGD";
-        badge.className = "status-badge status-closed";
+      } else if (state === ST.R1_CLOSED || state === ST.R2_CLOSED) {
+        badge.innerText = 'RÖSTNING ST&#196;NGD';
+        badge.className = 'status-badge status-closed';
         votingArea.classList.add('hidden');
         feedbackArea.classList.remove('hidden');
-        msg.innerText = hasVoted ? "Väntar på nästa fas..." : "Du hann tyvärr inte rösta.";
-      } else if(state === 5) {
-        badge.innerText = "DISKUSSION";
-        badge.className = "status-badge status-waiting";
+        msg.innerText = hasVoted ? 'V&#228;ntar p&#229; n&#228;sta fas...' : 'Du hann tyvärr inte rösta.';
+      } else if (state === ST.DISCUSSION) {
+        badge.innerText = 'DISKUSSION';
+        badge.className = 'status-badge status-waiting';
         votingArea.classList.add('hidden');
         feedbackArea.classList.remove('hidden');
-        msg.innerText = "Diskutera med din granne!";
-      } else if(state === 9) {
-        // Redirect to results or show simple result summary
-        window.location.href = "?view=results&sessionId=" + sessionId;
+        msg.innerText = 'Diskutera med din granne!';
+      } else if (state === ST.RESULTS_VISIBLE) {
+        // Redirect to results view
+        window.location.href = ScriptApp ? '?view=results&sessionId=' + sessionId
+                                         : window.location.href.replace(/view=[^&]*/, 'view=results');
       } else {
-        badge.innerText = "VÄNTAR";
-        badge.className = "status-badge status-waiting";
+        badge.innerText = 'VÄNTAR';
+        badge.className = 'status-badge status-waiting';
         votingArea.classList.add('hidden');
         feedbackArea.classList.remove('hidden');
-        msg.innerText = "Väntar på läraren...";
+        msg.innerText = 'V&#228;ntar p&#229; l&#228;raren...';
       }
     }
 
     function submitVote(answer) {
-      if(hasVoted) return;
-      
+      if (hasVoted) return;
       google.script.run
-        .withSuccessHandler(res => {
-          if(res.ok && res.accepted) {
+        .withSuccessHandler(function(res) {
+          if (res.ok && res.accepted) {
             hasVoted = true;
             lastVotedAnswer = answer;
-            document.querySelectorAll('.vote-btn').forEach(b => {
-              if(b.innerText === answer) b.classList.add('selected');
+            document.querySelectorAll('.vote-btn').forEach(function(b) {
+              if (b.innerText === answer) b.classList.add('selected');
             });
             fetchState();
           }
         })
+        .withFailureHandler(function(err) { console.warn('submitVote error:', err.message); })
         .Vote_submit(sessionId, participantId, currentRound, answer);
     }
 
