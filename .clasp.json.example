@@ -1,0 +1,17 @@
+{
+  "scriptId": "YOUR_APPS_SCRIPT_SCRIPT_ID_HERE",
+  "rootDir": "./src/gs",
+  "projectId": "YOUR_GCP_PROJECT_ID_HERE"
+}
+
+// ================================================================
+// INSTRUCTIONS:
+// 1. Copy this file to .clasp.json (git-ignored)
+// 2. Replace YOUR_APPS_SCRIPT_SCRIPT_ID_HERE with your Script ID
+//    (found in Apps Script: Project Settings > Script ID)
+// 3. Replace YOUR_GCP_PROJECT_ID_HERE with your GCP project number
+// 4. Run: clasp login  (first time only)
+// 5. Run: clasp push   (to push code to Apps Script)
+//
+// NEVER commit .clasp.json – it is listed in .gitignore
+// ================================================================
