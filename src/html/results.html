@@ -2,28 +2,102 @@
 <!--
   FILE: src/html/results.html
   PROJECT: QuantumVote GW v3
-  OWNER: Agent 3 (Frontend & HTML)
-  PURPOSE: Results display page – shows vote histogram/bar chart per answer option
+  OWNER: Agent 5 (Integration & End-to-End Assembly)
+  PURPOSE: Results View – Displays vote distributions for R1 and R2.
   CONTRACT: API_CONTRACT_v1.md
-  STATUS: PLACEHOLDER – implementation reserved for Agent 3
+
+  PATCH HISTORY:
+  - Agent3-mini: Removed Analytics_computeQuestionStats (not implemented).
+    Now uses Vote_getCounts for live count data.
+  - Agent 5: sessionId + questionId now read from bootstrapJson (injected by Routing.gs),
+    NOT from URLSearchParams (URLSearchParams does not work with Apps Script HtmlService).
+    bootstrap.questionId is set by _renderResults() in Routing.gs.
+    Polling interval uses bootstrap.config.pollingIntervalActiveMs.
 -->
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Resultat – QuantumVote GW v3</title>
-  <!-- TODO (Agent 3): Add CSS + charting library (Chart.js or similar) -->
+  <style>
+    body { font-family: sans-serif; margin: 20px; background: #fff; color: #333; text-align: center; }
+    .results-container { max-width: 900px; margin: auto; }
+    .stats-info { margin-top: 20px; font-size: 1.1rem; }
+    .notice { margin-top: 30px; padding: 15px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; font-size: 0.95rem; color: #856404; }
+    h2 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
+  </style>
 </head>
 <body>
-  <h1>Resultat</h1>
-  <p>PLACEHOLDER – implementation reserved for Agent 3</p>
-  <!--
-    TODO (Agent 3): Implement
-    - Fetch results from ?action=getResults via API_CONTRACT_v1.md
-    - Display bar chart: A/B/C/D vote counts
-    - Show total count and percentage per option
-    - Optionally highlight correct answer
-    - Auto-refresh or use polling to update live
-  -->
+  <div class="results-container">
+    <h1 id="questionTitle">Resultat</h1>
+    <div id="statsSummary" class="stats-info">Laddar resultat...</div>
+
+    <div id="noticeBox" class="notice" style="display:none">
+      Detaljerad f&#246;rdelningsanalys &#228;r inte tillg&#228;nglig &#228;nnu.
+      <!-- TODO: Aktivera n&#228;r Analytics_computeQuestionStats &#228;r implementerad i backend -->
+    </div>
+
+    <h2>R&#246;stantal</h2>
+    <div id="voteCountsView" class="stats-info">-</div>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------------------
+    // Bootstrap data injected server-side by Routing.gs
+    // -------------------------------------------------------------------------
+    var _bootstrap = null;
+    try {
+      _bootstrap = JSON.parse('<?= bootstrapJson ?>');
+    } catch(e) {
+      _bootstrap = { sessionId: null, questionId: null, stateSnapshot: null, config: {} };
+    }
+
+    var sessionId  = (_bootstrap && _bootstrap.sessionId)  ? _bootstrap.sessionId  : null;
+    var questionId = (_bootstrap && _bootstrap.questionId) ? _bootstrap.questionId : '';
+    var _pollMs    = (_bootstrap && _bootstrap.config && _bootstrap.config.pollingIntervalActiveMs)
+                    ? _bootstrap.config.pollingIntervalActiveMs : 3000;
+
+    function init() {
+      if (!sessionId) {
+        document.getElementById('statsSummary').innerText = 'Ingen session angiven.';
+        return;
+      }
+      startPolling();
+    }
+
+    function startPolling() {
+      setInterval(fetchResults, _pollMs);
+      fetchResults();
+    }
+
+    function fetchResults() {
+      // NOTE: Analytics_computeQuestionStats is NOT called here.
+      // Using Vote_getCounts (API_CONTRACT_v1 verified) for basic counts.
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res && res.ok) {
+            renderCounts(res.counts);
+          } else {
+            document.getElementById('statsSummary').innerText = 'Kunde inte h&#228;mta r&#246;stdata.';
+          }
+        })
+        .withFailureHandler(function(err) {
+          document.getElementById('statsSummary').innerText = 'Fel vid h&#228;mtning: ' + (err.message || err);
+        })
+        .Vote_getCounts(sessionId, questionId);
+    }
+
+    function renderCounts(counts) {
+      var r1    = (counts && counts.round1    !== undefined) ? counts.round1    : '-';
+      var r2    = (counts && counts.round2    !== undefined) ? counts.round2    : '-';
+      var total = (counts && counts.totalParticipants !== undefined) ? counts.totalParticipants : '-';
+      document.getElementById('statsSummary').innerText  = 'Inl&#228;sta r&#246;ster';
+      document.getElementById('voteCountsView').innerText =
+        'Omg&#229;ng 1: ' + r1 + ' r&#246;ster | Omg&#229;ng 2: ' + r2 + ' r&#246;ster | Deltagare totalt: ' + total;
+      document.getElementById('noticeBox').style.display = 'block';
+    }
+
+    window.onload = init;
+  </script>
 </body>
 </html>

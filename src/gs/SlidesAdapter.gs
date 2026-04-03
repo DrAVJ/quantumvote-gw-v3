@@ -1,37 +1,119 @@
 // =============================================================================
 // FILE: src/gs/SlidesAdapter.gs
 // PROJECT: QuantumVote GW v3
-// OWNER: Agent 3 (Frontend & HTML)
-// PURPOSE: Reads question data from Google Slides presenter notes
-// CONTRACT: DATA_CONTRACT_v1.md, FILE_OWNERSHIP_v1.md
-// STATUS: PLACEHOLDER – implementation reserved for Agent 3
-// SLIDES ID: Defined in Config.gs (PRESENTATION_ID)
+// OWNER: Agent 3 (Frontend & HTML) + Agent 5 integration
+// PURPOSE: Integration with Google Slides for question extraction and flow control.
+// CONTRACT: API_CONTRACT_v1.md
+//
+// INTEGRATION FIXES (Agent 5):
+//  - Slides_importQuestionsFromPresentation: wired SheetAdapter_writeQuestion
+//    so parsed questions are persisted to the Questions sheet.
+//  - questionId format: uses slide objectId (stable) as per DATA_CONTRACT_v1
 // =============================================================================
 
 /**
- * getCurrentQuestion() – Reads question from current slide's speaker notes
- * @returns {Object} {questionId, text, options: {A,B,C,D}, correctAnswer}
+ * Slides_importQuestionsFromPresentation(presentationId)
+ * Reads all slides in a presentation and extracts question data.
+ * @param {string} presentationId
+ * @returns {Object} { ok: true, imported: number, questionIds: string[] }
  */
-function getCurrentQuestion() {
-  // TODO (Agent 3): Open PRESENTATION_ID, read current slide notes, parse question
-  throw new Error('getCurrentQuestion not yet implemented – reserved for Agent 3');
+function Slides_importQuestionsFromPresentation(presentationId) {
+  try {
+    const deck   = SlidesApp.openById(presentationId);
+    const slides = deck.getSlides();
+    let importedCount = 0;
+    let questionIds   = [];
+
+    slides.forEach((slide, index) => {
+      const question = _Slides_parseSlide(slide, presentationId);
+      if (question) {
+        // INTEGRATION FIX (Agent 5): persist question to Sheets
+        SheetAdapter_writeQuestion(question);
+        questionIds.push(question.questionId);
+        importedCount++;
+      }
+    });
+
+    return { ok: true, imported: importedCount, questionIds: questionIds };
+  } catch (e) {
+    return { ok: false, error: e.toString() };
+  }
 }
 
 /**
- * getSlideIndex() – Returns the current slide number (1-based)
- * @returns {number} current slide index
+ * Slides_extractQuestion(slideId)
+ * Extracts question data from a specific slide.
+ * @param {string} slideId - Format: "presentationId::objectId" OR just objectId.
+ * @returns {Object} { ok: true, question: Object } or { ok: false, error: string }
+ *
+ * NOTE (Agent3-mini): Config_get() is not implemented.
+ * Pass slideId as "presentationId::objectId" compound key.
  */
-function getSlideIndex() {
-  // TODO (Agent 3): Use SlidesApp to detect active slide
-  throw new Error('getSlideIndex not yet implemented – reserved for Agent 3');
+function Slides_extractQuestion(slideId) {
+  try {
+    var presentationId = null;
+    var actualSlideId  = slideId;
+
+    if (slideId && slideId.indexOf('::') !== -1) {
+      var parts      = slideId.split('::');
+      presentationId = parts[0];
+      actualSlideId  = parts[1];
+    }
+
+    if (!presentationId) {
+      return { ok: false,
+               error: 'Slides_extractQuestion: presentationId could not be resolved. ' +
+                      'Pass slideId as "presentationId::objectId" or use ' +
+                      'Slides_importQuestionsFromPresentation(presentationId) instead.' };
+    }
+
+    const deck  = SlidesApp.openById(presentationId);
+    const slide = deck.getSlides().find(function(s) {
+      return s.getObjectId() === actualSlideId;
+    });
+    if (!slide) throw new Error('Slide not found: ' + actualSlideId);
+
+    const question = _Slides_parseSlide(slide, presentationId);
+    return { ok: true, question: question };
+  } catch (e) {
+    return { ok: false, error: e.toString() };
+  }
 }
 
 /**
- * parseQuestionFromNotes(notesText) – Parses structured question from notes string
- * @param {string} notesText - Raw speaker notes text
- * @returns {Object} parsed question object per DATA_CONTRACT_v1.md
+ * Internal helper to parse a slide into a Question object.
+ * @private
  */
-function parseQuestionFromNotes(notesText) {
-  // TODO (Agent 3): Implement parser – format defined in DATA_CONTRACT_v1.md
-  throw new Error('parseQuestionFromNotes not yet implemented – reserved for Agent 3');
+function _Slides_parseSlide(slide, presentationId) {
+  const notes     = slide.getNotesPage().getSpeakerNotesShape().getText().asString();
+  const jsonMatch = notes.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+
+  try {
+    const data = JSON.parse(jsonMatch[0]);
+    return {
+      questionId:     data.questionId || slide.getObjectId(),
+      presentationId: presentationId,
+      slideId:        slide.getObjectId(),
+      title:          data.title         || 'Fraga',
+      prompt:         data.prompt        || '',
+      options:        data.options       || { 'A': '', 'B': '', 'C': '', 'D': '' },
+      optionsJson:    JSON.stringify(data.options || { 'A': '', 'B': '', 'C': '', 'D': '' }),
+      correctAnswer:  data.correctAnswer || 'A',
+      imageFileId:    data.imageFileId   || null,
+      conceptTag:     data.conceptTag    || null,
+      difficulty:     data.difficulty    || null,
+      version:        data.version       || 'v1',
+      active:         true
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Slides_syncWithPresenter() - not implemented in web app context
+ */
+function Slides_syncWithPresenter() {
+  return { ok: false, error: 'Not implemented - requires Add-on context' };
 }
