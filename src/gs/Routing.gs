@@ -1,59 +1,51 @@
 /**
  * File: Routing.gs
- * Owner: Backend-agent (Agent 2)
- * Project: QuantumVote GW v3
+ * Owner: Agent 5 (Integration)
+ * Based on: Agent 2 backend + Agent 5 integration fixes
  * Purpose: doGet/doPost routing, view dispatch, bootstrap data.
  * Contracts: API_CONTRACT_v1
  *
- * Depends on:
- *   - Config.gs (QV_CONFIG)
- *   - Auth.gs (Auth_getCurrentUserContext)
- *   - SessionManager.gs (Session_load)
- *   - HTML files in src/html/* (to be implemented by Agent 3)
- *
- * MANUAL APPS SCRIPT NOTE:
- *   Copy into Apps Script as "Routing.gs".
- *   This file must define doGet() as the web app entry point.
- *   Deploy as a web app from Apps Script: Publish > Deploy as web app.
+ * INTEGRATION FIXES (Agent 5):
+ *  - _renderTeacherConsole → HtmlService.createTemplateFromFile('index')
+ *  - _renderStudent       → HtmlService.createTemplateFromFile('vote')
+ *  - _renderResults       → HtmlService.createTemplateFromFile('results')
+ *  - _renderAdmin         → HtmlService.createTemplateFromFile('admin')
+ *  - view='results' added for results page (student redirect from state 9)
+ *  - view='admin'   added for admin/debug page
+ *  - Bootstrap JSON injected via template variable 'bootstrapJson'
  */
 
 // ---------------------------------------------------------------------------
 // doGet(e) — Web App Entry Point
 // Routes GET requests to the appropriate view.
-// e.parameter.view: 'teacher-console', 'teacher-remote', 'student', 'projector'
+// e.parameter.view: 'teacher-console', 'teacher-remote', 'student',
+//                   'projector', 'results', 'admin'
 // e.parameter.sessionId: optional, required for most views.
 // ---------------------------------------------------------------------------
 function doGet(e) {
-  var view = (e && e.parameter && e.parameter.view) ? e.parameter.view : null;
-  var sessionId = (e && e.parameter && e.parameter.sessionId) ? e.parameter.sessionId : null;
+  var view      = (e && e.parameter && e.parameter.view)
+                  ? e.parameter.view : null;
+  var sessionId = (e && e.parameter && e.parameter.sessionId)
+                  ? e.parameter.sessionId : null;
 
-  // If no view specified, return a landing page or redirect to teacher-console
-  if (!view) {
-    return _renderLandingPage();
-  }
+  // Default: teacher console
+  if (!view) { return _renderTeacherConsole(sessionId); }
 
-  // Dispatch to view renderer
-  if (view === 'teacher-console') {
-    return _renderTeacherConsole(sessionId);
-  } else if (view === 'teacher-remote') {
-    return _renderTeacherRemote(sessionId);
-  } else if (view === 'student') {
-    return _renderStudent(sessionId);
-  } else if (view === 'projector') {
-    return _renderProjector(sessionId);
-  } else {
-    return _renderError('UNKNOWN_VIEW', 'Unknown view: ' + view);
+  if      (view === 'teacher-console') { return _renderTeacherConsole(sessionId); }
+  else if (view === 'teacher-remote')  { return _renderTeacherRemote(sessionId); }
+  else if (view === 'student')         { return _renderStudent(sessionId); }
+  else if (view === 'projector')       { return _renderProjector(sessionId); }
+  else if (view === 'results')         {
+    return _renderResults(sessionId, e.parameter.questionId || '');
   }
+  else if (view === 'admin')           { return _renderAdmin(sessionId); }
+  else { return _renderError('UNKNOWN_VIEW', 'Unknown view: ' + view); }
 }
 
 // ---------------------------------------------------------------------------
-// doPost(e) — AJAX API Entry Point
-// Handles POST requests for server-side actions.
-// Not required if all backend calls use google.script.run directly.
-// TODO: Implement if AJAX-style polling is needed.
+// doPost(e) — AJAX API Entry Point (stub; all calls use google.script.run)
 // ---------------------------------------------------------------------------
 function doPost(e) {
-  // TODO [Agent 3 or Agent 2]: Implement if frontend uses fetch() instead of google.script.run
   return ContentService.createTextOutput(
     JSON.stringify({ ok: false, error: 'NOT_IMPLEMENTED' })
   ).setMimeType(ContentService.MimeType.JSON);
@@ -63,122 +55,81 @@ function doPost(e) {
 // VIEW RENDERERS
 // ===========================================================================
 
-// ---------------------------------------------------------------------------
-// _renderLandingPage
-// Returns a minimal landing page or redirects to teacher-console.
-// ---------------------------------------------------------------------------
-function _renderLandingPage() {
-  // TODO [Agent 3]: Create a src/html/LandingPage.html
-  // For now, return a minimal HTML string:
-  var html = '<html><body><h1>QuantumVote GW v3</h1>' +
-             '<p>Please specify a view: ?view=teacher-console</p></body></html>';
-  return HtmlService.createHtmlOutput(html).setTitle('QuantumVote GW v3');
-}
-
-// ---------------------------------------------------------------------------
-// _renderTeacherConsole
-// Renders the desktop teacher view.
-// ---------------------------------------------------------------------------
 function _renderTeacherConsole(sessionId) {
-  // Require teacher auth
-  try {
-    Auth_requireTeacher();
-  } catch (err) {
-    return _renderError('AUTH_ERROR', err.message);
-  }
-
+  try { Auth_requireTeacher(); } catch (err) { return _renderError('AUTH_ERROR', err.message); }
   var bootstrap = _buildBootstrap('teacher-console', sessionId);
-
-  // TODO [Agent 3]: Use HtmlService.createTemplateFromFile('TeacherConsole')
-  // For now, return a placeholder:
-  var template = HtmlService.createTemplate(
-    '<html><head><title>Teacher Console</title></head>' +
-    '<body><h1>Teacher Console</h1>' +
-    '<pre id="bootstrap"></pre>' +
-    '<script>document.getElementById("bootstrap").textContent = JSON.stringify(<?= bootstrap ?>, null, 2);</script>' +
-    '</body></html>'
-  );
-  template.bootstrap = bootstrap;
-  return template.evaluate().setTitle('QuantumVote — Teacher Console');
+  var template  = HtmlService.createTemplateFromFile('index');
+  template.bootstrapJson = JSON.stringify(bootstrap);
+  return template.evaluate()
+    .setTitle('QuantumVote — Teacher Console')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ---------------------------------------------------------------------------
-// _renderTeacherRemote
-// Renders the mobile teacher remote control.
-// ---------------------------------------------------------------------------
 function _renderTeacherRemote(sessionId) {
-  try {
-    Auth_requireTeacher();
-  } catch (err) {
-    return _renderError('AUTH_ERROR', err.message);
-  }
-
+  try { Auth_requireTeacher(); } catch (err) { return _renderError('AUTH_ERROR', err.message); }
   var bootstrap = _buildBootstrap('teacher-remote', sessionId);
-
-  // TODO [Agent 3]: Use TeacherRemote.html
-  var template = HtmlService.createTemplate(
-    '<html><head><title>Teacher Remote</title></head>' +
-    '<body><h1>Teacher Remote</h1>' +
-    '<pre><?= bootstrap ?></pre>' +
-    '</body></html>'
-  );
-  template.bootstrap = JSON.stringify(bootstrap, null, 2);
-  return template.evaluate().setTitle('QuantumVote — Remote');
+  // Teacher remote reuses index.html (same controls, mobile-optimised via CSS)
+  var template  = HtmlService.createTemplateFromFile('index');
+  template.bootstrapJson = JSON.stringify(bootstrap);
+  return template.evaluate()
+    .setTitle('QuantumVote — Remote')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ---------------------------------------------------------------------------
-// _renderStudent
-// Renders the student vote view.
-// ---------------------------------------------------------------------------
 function _renderStudent(sessionId) {
-  // Students don't need teacher auth
   var bootstrap = _buildBootstrap('student', sessionId);
-
-  // TODO [Agent 3]: Use StudentVote.html
-  var template = HtmlService.createTemplate(
-    '<html><head><title>Student Vote</title></head>' +
-    '<body><h1>Student Vote</h1>' +
-    '<pre><?= bootstrap ?></pre>' +
-    '</body></html>'
-  );
-  template.bootstrap = JSON.stringify(bootstrap, null, 2);
-  return template.evaluate().setTitle('QuantumVote — Student');
+  var template  = HtmlService.createTemplateFromFile('vote');
+  template.bootstrapJson = JSON.stringify(bootstrap);
+  return template.evaluate()
+    .setTitle('QuantumVote — Rösta')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ---------------------------------------------------------------------------
-// _renderProjector
-// Renders the projector view.
-// ---------------------------------------------------------------------------
 function _renderProjector(sessionId) {
   var bootstrap = _buildBootstrap('projector', sessionId);
+  // Projector reuses results page (read-only, no private data)
+  var template  = HtmlService.createTemplateFromFile('results');
+  template.bootstrapJson = JSON.stringify(bootstrap);
+  return template.evaluate()
+    .setTitle('QuantumVote — Projektor')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
 
-  // TODO [Agent 3]: Use ProjectorView.html
-  var template = HtmlService.createTemplate(
-    '<html><head><title>Projector View</title></head>' +
-    '<body><h1>Projector View</h1>' +
-    '<pre><?= bootstrap ?></pre>' +
-    '</body></html>'
-  );
-  template.bootstrap = JSON.stringify(bootstrap, null, 2);
-  return template.evaluate().setTitle('QuantumVote — Projector');
+function _renderResults(sessionId, questionId) {
+  var bootstrap = _buildBootstrap('results', sessionId);
+  bootstrap.questionId = questionId || null;
+  var template  = HtmlService.createTemplateFromFile('results');
+  template.bootstrapJson = JSON.stringify(bootstrap);
+  return template.evaluate()
+    .setTitle('QuantumVote — Resultat')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function _renderAdmin(sessionId) {
+  try { Auth_requireTeacher(); } catch (err) { return _renderError('AUTH_ERROR', err.message); }
+  var bootstrap = _buildBootstrap('admin', sessionId);
+  var template  = HtmlService.createTemplateFromFile('admin');
+  template.bootstrapJson = JSON.stringify(bootstrap);
+  return template.evaluate()
+    .setTitle('QuantumVote — Admin')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 // ===========================================================================
 // HELPERS
 // ===========================================================================
 
-// ---------------------------------------------------------------------------
-// _buildBootstrap
-// Constructs the initial data payload sent to the client on page load.
-// Includes: userContext, sessionId, config, stateSnapshot (if session exists).
-// ---------------------------------------------------------------------------
+/**
+ * _buildBootstrap
+ * Constructs the initial data payload sent to the client on page load.
+ * Includes: userContext, sessionId, config, stateSnapshot (if session exists).
+ */
 function _buildBootstrap(view, sessionId) {
   var userContext = Auth_getCurrentUserContext();
-
   var bootstrap = {
-    view: view,
+    view:        view,
     userContext: userContext,
-    sessionId: sessionId || null,
+    sessionId:   sessionId || null,
     config: {
       pollingIntervalActiveMs: QV_CONFIG.POLLING_INTERVAL_ACTIVE_MS,
       pollingIntervalIdleMs:   QV_CONFIG.POLLING_INTERVAL_IDLE_MS,
@@ -186,7 +137,7 @@ function _buildBootstrap(view, sessionId) {
       appVersion:              QV_CONFIG.APP_VERSION
     },
     stateSnapshot: null,
-    error: null
+    error:         null
   };
 
   if (sessionId) {
@@ -201,14 +152,14 @@ function _buildBootstrap(view, sessionId) {
   return bootstrap;
 }
 
-// ---------------------------------------------------------------------------
-// _renderError
-// Returns a simple error page.
-// ---------------------------------------------------------------------------
+/**
+ * _renderError
+ * Returns a simple error page.
+ */
 function _renderError(errorCode, message) {
-  var html = '<html><body>' +
-             '<h1>Error: ' + errorCode + '</h1>' +
-             '<p>' + message + '</p>' +
-             '</body></html>';
-  return HtmlService.createHtmlOutput(html).setTitle('QuantumVote — Error');
+  var html = '<html><body style="font-family:monospace;padding:2em">'
+           + '<h2>Error: ' + errorCode + '</h2>'
+           + '<p>' + message + '</p>'
+           + '</body></html>';
+  return HtmlService.createHtmlOutput(html).setTitle('QuantumVote — Fel');
 }

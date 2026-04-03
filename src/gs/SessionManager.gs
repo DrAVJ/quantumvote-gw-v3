@@ -1,158 +1,255 @@
 /**
  * File: SessionManager.gs
- * Owner: Backend-agent (Agent 2)
- * Project: QuantumVote GW v3
+ * Owner: Agent 5 (Integration) — based on Agent 2 backend
  * Purpose: Session lifecycle, state transitions, question navigation.
  * Contracts: API_CONTRACT_v1, DATA_CONTRACT_v1, STATE_MACHINE_v1
  *
- * Depends on:
- * - Config.gs (QV_CONFIG, QV_STATES)
- * - StateMachine.gs (validate, apply, buildSnapshot)
- * - Auth.gs (Auth_getCurrentUserContext, Auth_requireTeacher)
- * - SheetAdapter.gs (Implemented by Agent 4)
+ * INTEGRATION FIXES (Agent 5):
+ *  - Session_create: wired SheetAdapter_writeSession
+ *  - Session_load: falls back SheetAdapter_loadSession before PropertiesService
+ *  - Session_activateQuestion: wired SheetAdapter_loadQuestion for real slideId
+ *  - Session_nextQuestion / Session_prevQuestion: wired SheetAdapter
+ *  - _saveSnapshot: also persists currentState to Sessions sheet
  */
 
+// In-memory cache for hot sessions (write-through)
 var _sessionCache = {};
 
+// ---------------------------------------------------------------------------
+// Public API: Session_create
+// ---------------------------------------------------------------------------
 function Session_create(presentationId, classCode, options) {
   Auth_requireTeacher();
+
   if (!presentationId || !classCode) {
-    return { ok: false, error: 'MISSING_PARAM', message: 'presentationId and classCode are required.' };
+    return { ok: false, error: 'MISSING_PARAM',
+             message: 'presentationId and classCode are required.' };
   }
+
   options = options || {};
-  var safeMode = (options.safeMode !== false);
-  var userContext = Auth_getCurrentUserContext();
+  var safeMode         = (options.safeMode !== false);
+  var allowVoteChange  = (options.allowVoteChange !== false);
+  var discussionSeconds = options.discussionSeconds ||
+                          QV_CONFIG.DEFAULT_DISCUSSION_SECONDS;
+
+  var userContext  = Auth_getCurrentUserContext();
   var teacherEmail = userContext.email;
-  var sessionId = 'sess_' + Utilities.getUuid();
-  var now = new Date().toISOString();
+  var sessionId    = 'sess_' + Utilities.getUuid();
+  var now          = new Date().toISOString();
 
   var sessionRow = {
-    sessionId: sessionId,
-    presentationId: presentationId,
-    teacherEmail: teacherEmail,
-    classCode: classCode,
-    safeMode: safeMode,
-    status: 'active',
+    sessionId:         sessionId,
+    presentationId:    presentationId,
+    teacherEmail:      teacherEmail,
+    classCode:         classCode,
+    safeMode:          safeMode,
+    status:            'active',
     currentQuestionId: null,
-    currentState: QV_STATES.IDLE,
-    createdAt: now,
-    startedAt: now,
-    endedAt: null
+    currentState:      QV_STATES.IDLE,
+    createdAt:         now,
+    startedAt:         now,
+    endedAt:           null
   };
 
+  // Persist to Sheets
   SheetAdapter_writeSession(sessionRow);
+
   var snapshot = StateMachine_buildSnapshot(sessionId, safeMode);
+
+  // Also store in PropertiesService for fast read access
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('session_'  + sessionId, JSON.stringify(sessionRow));
+  props.setProperty('snapshot_' + sessionId, JSON.stringify(snapshot));
+
   _sessionCache[sessionId] = { session: sessionRow, snapshot: snapshot };
+
   return { ok: true, sessionId: sessionId, stateSnapshot: snapshot };
 }
 
+// ---------------------------------------------------------------------------
+// Public API: Session_load
+// ---------------------------------------------------------------------------
 function Session_load(sessionId) {
-  if (!sessionId) return { ok: false, error: 'MISSING_SESSION_ID' };
-  if (_sessionCache[sessionId]) {
-    var cached = _sessionCache[sessionId];
-    return { ok: true, session: cached.session, stateSnapshot: cached.snapshot, links: _buildSessionLinks(sessionId) };
+  if (!sessionId) {
+    return { ok: false, error: 'MISSING_SESSION_ID' };
   }
 
-  var session = SheetAdapter_loadSession(sessionId);
-  if (!session) return { ok: false, error: 'SESSION_NOT_FOUND', sessionId: sessionId };
+  // Check in-memory cache first
+  if (_sessionCache[sessionId]) {
+    var cached = _sessionCache[sessionId];
+    return { ok: true, session: cached.session,
+             stateSnapshot: cached.snapshot,
+             links: _buildSessionLinks(sessionId) };
+  }
 
-  var snapshot = StateMachine_buildSnapshot(sessionId, session.safeMode);
-  snapshot.currentState = session.currentState;
-  snapshot.currentQuestionId = session.currentQuestionId;
+  // Try PropertiesService (fast path)
+  var props        = PropertiesService.getScriptProperties();
+  var sessionData  = props.getProperty('session_'  + sessionId);
+  var snapshotData = props.getProperty('snapshot_' + sessionId);
 
-  _sessionCache[sessionId] = { session: session, snapshot: snapshot };
-  return { ok: true, session: session, stateSnapshot: snapshot, links: _buildSessionLinks(sessionId) };
+  if (sessionData && snapshotData) {
+    var session  = JSON.parse(sessionData);
+    var snapshot = JSON.parse(snapshotData);
+    _sessionCache[sessionId] = { session: session, snapshot: snapshot };
+    return { ok: true, session: session,
+             stateSnapshot: snapshot,
+             links: _buildSessionLinks(sessionId) };
+  }
+
+  // Fall back to Sheets
+  var sheetSession = SheetAdapter_loadSession(sessionId);
+  if (!sheetSession) {
+    return { ok: false, error: 'SESSION_NOT_FOUND', sessionId: sessionId };
+  }
+
+  // Rebuild minimal snapshot from stored currentState
+  var rebuiltSnapshot = StateMachine_buildSnapshot(sessionId, sheetSession.safeMode);
+  rebuiltSnapshot.currentState      = sheetSession.currentState      || QV_STATES.IDLE;
+  rebuiltSnapshot.currentQuestionId = sheetSession.currentQuestionId || null;
+
+  // Populate cache and PropertiesService
+  props.setProperty('session_'  + sessionId, JSON.stringify(sheetSession));
+  props.setProperty('snapshot_' + sessionId, JSON.stringify(rebuiltSnapshot));
+  _sessionCache[sessionId] = { session: sheetSession, snapshot: rebuiltSnapshot };
+
+  return { ok: true, session: sheetSession,
+           stateSnapshot: rebuiltSnapshot,
+           links: _buildSessionLinks(sessionId) };
 }
 
+// ---------------------------------------------------------------------------
+// Public API: Session_activateQuestion
+// ---------------------------------------------------------------------------
 function Session_activateQuestion(sessionId, questionId) {
   Auth_requireTeacher();
   var loaded = Session_load(sessionId);
   if (!loaded.ok) return loaded;
-  var snapshot = loaded.stateSnapshot;
-  var session = loaded.session;
 
-  var question = SheetAdapter_loadQuestion(questionId);
-  if (!question) return { ok: false, error: 'QUESTION_NOT_FOUND', questionId: questionId };
+  var snapshot = loaded.stateSnapshot;
+
+  // Get real slideId from SheetAdapter
+  var slideId = questionId; // fallback
+  var q = SheetAdapter_loadQuestion(questionId);
+  if (q && q.slideId) { slideId = q.slideId; }
 
   snapshot.currentQuestionId = questionId;
-  snapshot.currentSlideId = question.slideId;
-  session.currentQuestionId = questionId;
+  snapshot.currentSlideId    = slideId;
 
   var result = StateMachine_apply(snapshot, QV_STATES.QUESTION_READY, {});
   if (!result.ok) return result;
   snapshot = result.stateSnapshot;
-  session.currentState = snapshot.currentState;
 
-  _saveSnapshot(sessionId, snapshot, session);
+  _saveSnapshot(sessionId, snapshot);
   return { ok: true, stateSnapshot: snapshot };
 }
 
+// ---------------------------------------------------------------------------
+// Public API: Session_nextQuestion
+// ---------------------------------------------------------------------------
 function Session_nextQuestion(sessionId) {
+  Auth_requireTeacher();
   var loaded = Session_load(sessionId);
   if (!loaded.ok) return loaded;
-  var nextId = SheetAdapter_getNextQuestionId(loaded.stateSnapshot.currentQuestionId);
-  if (!nextId) return { ok: false, error: 'NO_NEXT_QUESTION' };
-  return Session_activateQuestion(sessionId, nextId);
+
+  var currentQId = loaded.stateSnapshot.currentQuestionId;
+  var nextQId    = SheetAdapter_getNextQuestionId(currentQId);
+  if (!nextQId) {
+    return { ok: false, error: 'NO_NEXT_QUESTION',
+             message: 'No further questions in this presentation.' };
+  }
+  return Session_activateQuestion(sessionId, nextQId);
 }
 
+// ---------------------------------------------------------------------------
+// Public API: Session_prevQuestion
+// ---------------------------------------------------------------------------
 function Session_prevQuestion(sessionId) {
+  Auth_requireTeacher();
   var loaded = Session_load(sessionId);
   if (!loaded.ok) return loaded;
-  var prevId = SheetAdapter_getPrevQuestionId(loaded.stateSnapshot.currentQuestionId);
-  if (!prevId) return { ok: false, error: 'NO_PREV_QUESTION' };
-  return Session_activateQuestion(sessionId, prevId);
+
+  var currentQId = loaded.stateSnapshot.currentQuestionId;
+  var prevQId    = SheetAdapter_getPrevQuestionId(currentQId);
+  if (!prevQId) {
+    return { ok: false, error: 'NO_PREV_QUESTION',
+             message: 'Already at first question.' };
+  }
+  return Session_activateQuestion(sessionId, prevQId);
 }
 
+// ---------------------------------------------------------------------------
+// Public API: Session_transition
+// ---------------------------------------------------------------------------
 function Session_transition(sessionId, nextState, payload) {
   Auth_requireTeacher();
   var loaded = Session_load(sessionId);
   if (!loaded.ok) return loaded;
-  var snapshot = loaded.stateSnapshot;
-  var session = loaded.session;
 
-  var result = StateMachine_apply(snapshot, nextState, payload || {});
+  var snapshot = loaded.stateSnapshot;
+  var result   = StateMachine_apply(snapshot, nextState, payload || {});
   if (!result.ok) return result;
   snapshot = result.stateSnapshot;
-  session.currentState = snapshot.currentState;
 
   var userContext = Auth_getCurrentUserContext();
   snapshot.lastCommandByRole = userContext.isTeacher ? 'teacher' : 'unknown';
 
-  _saveSnapshot(sessionId, snapshot, session);
+  _saveSnapshot(sessionId, snapshot);
   return { ok: true, stateSnapshot: snapshot };
 }
 
+// ---------------------------------------------------------------------------
+// Public API: Session_getState
+// ---------------------------------------------------------------------------
 function Session_getState(sessionId) {
   var loaded = Session_load(sessionId);
   if (!loaded.ok) return loaded;
   return { ok: true, stateSnapshot: loaded.stateSnapshot };
 }
 
+// ---------------------------------------------------------------------------
+// Public API: Session_archive
+// ---------------------------------------------------------------------------
 function Session_archive(sessionId) {
   Auth_requireTeacher();
   var loaded = Session_load(sessionId);
   if (!loaded.ok) return loaded;
-  var snapshot = loaded.stateSnapshot;
-  var session = loaded.session;
 
-  var result = StateMachine_apply(snapshot, QV_STATES.ARCHIVED, {});
+  var snapshot = loaded.stateSnapshot;
+  var result   = StateMachine_apply(snapshot, QV_STATES.ARCHIVED, {});
   if (!result.ok) return result;
   snapshot = result.stateSnapshot;
-  session.currentState = snapshot.currentState;
-  session.status = 'archived';
-  session.endedAt = new Date().toISOString();
+  _saveSnapshot(sessionId, snapshot);
 
-  _saveSnapshot(sessionId, snapshot, session);
+  var session    = loaded.session;
+  session.status  = 'archived';
+  session.endedAt = new Date().toISOString();
+  SheetAdapter_updateSessionStatus(sessionId, 'archived', session.endedAt);
+
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('session_' + sessionId, JSON.stringify(session));
+  _sessionCache[sessionId] = { session: session, snapshot: snapshot };
+
   return { ok: true, archived: true };
 }
 
-function _saveSnapshot(sessionId, snapshot, session) {
-  if (session) {
-    SheetAdapter_writeSession(session);
-  }
+// ===========================================================================
+// PRIVATE HELPERS
+// ===========================================================================
+function _saveSnapshot(sessionId, snapshot) {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('snapshot_' + sessionId, JSON.stringify(snapshot));
   if (_sessionCache[sessionId]) {
     _sessionCache[sessionId].snapshot = snapshot;
-    if (session) _sessionCache[sessionId].session = session;
+  }
+
+  // Also update Sessions sheet with current state + questionId
+  var sessionData = props.getProperty('session_' + sessionId);
+  if (sessionData) {
+    var session = JSON.parse(sessionData);
+    session.currentState      = snapshot.currentState;
+    session.currentQuestionId = snapshot.currentQuestionId || null;
+    props.setProperty('session_' + sessionId, JSON.stringify(session));
+    SheetAdapter_writeSession(session);
   }
 }
 
@@ -160,8 +257,8 @@ function _buildSessionLinks(sessionId) {
   var baseUrl = ScriptApp.getService().getUrl();
   return {
     teacherConsoleUrl: baseUrl + '?view=teacher-console&sessionId=' + sessionId,
-    teacherRemoteUrl: baseUrl + '?view=teacher-remote&sessionId=' + sessionId,
-    studentUrl: baseUrl + '?view=student&sessionId=' + sessionId,
-    projectorUrl: baseUrl + '?view=projector&sessionId=' + sessionId
+    teacherRemoteUrl:  baseUrl + '?view=teacher-remote&sessionId='  + sessionId,
+    studentUrl:        baseUrl + '?view=student&sessionId='         + sessionId,
+    projectorUrl:      baseUrl + '?view=projector&sessionId='       + sessionId
   };
 }
