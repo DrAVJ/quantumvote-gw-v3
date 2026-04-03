@@ -21,18 +21,18 @@ var QV_CONFIG = {
     QUESTION_HISTORY: 'QuestionHistoryAggregate',
     AUDIT_LOG:        'AuditLog'
   },
-  VALID_ANSWERS:  ['A', 'B', 'C', 'D'],
-  MAX_OPTIONS:    4,
-  VALID_ROLES:    ['student', 'teacher-remote', 'teacher-console', 'projector'],
-  DEFAULT_SAFE_MODE:            true,
-  DEFAULT_ALLOW_VOTE_CHANGE:    true,
-  DEFAULT_DISCUSSION_SECONDS:   120,
-  DEFAULT_COUNTDOWN_SECONDS:    5,
-  POLLING_INTERVAL_ACTIVE_MS:   2000,
-  POLLING_INTERVAL_IDLE_MS:     8000,
+  VALID_ANSWERS:              ['A', 'B', 'C', 'D'],
+  MAX_OPTIONS:                4,
+  VALID_ROLES:                ['student', 'teacher-remote', 'teacher-console', 'projector'],
+  DEFAULT_SAFE_MODE:          true,
+  DEFAULT_ALLOW_VOTE_CHANGE:  true,
+  DEFAULT_DISCUSSION_SECONDS: 120,
+  DEFAULT_COUNTDOWN_SECONDS:  5,
+  POLLING_INTERVAL_ACTIVE_MS: 2000,
+  POLLING_INTERVAL_IDLE_MS:   8000,
   TEACHER_DOMAINS: '',
   TEACHER_EMAILS:  '',
-  APP_VERSION:     'v3.0.0-agent5'
+  APP_VERSION:     'v3.0.0'
 };
 
 var QV_STATES = {

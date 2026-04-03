@@ -30,28 +30,18 @@ function SheetAdapter_writeSession(sessionRow) {
   var headers = ["sessionId","presentationId","teacherEmail","classCode",
                  "safeMode","status","currentQuestionId","currentState",
                  "createdAt","startedAt","endedAt"];
-  var sheet    = _SheetAdapter_getOrCreateSheet(QV_CONFIG.SHEET_TABS.SESSIONS, headers);
-  var data     = sheet.getDataRange().getValues();
+  var sheet = _SheetAdapter_getOrCreateSheet(QV_CONFIG.SHEET_TABS.SESSIONS, headers);
+  var data  = sheet.getDataRange().getValues();
   var rowIndex = -1;
-
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === sessionRow.sessionId) { rowIndex = i + 1; break; }
   }
-
   var rowValues = [
-    sessionRow.sessionId,
-    sessionRow.presentationId,
-    sessionRow.teacherEmail,
-    sessionRow.classCode,
-    sessionRow.safeMode,
-    sessionRow.status,
-    sessionRow.currentQuestionId,
-    sessionRow.currentState,
-    sessionRow.createdAt,
-    sessionRow.startedAt,
-    sessionRow.endedAt
+    sessionRow.sessionId, sessionRow.presentationId, sessionRow.teacherEmail,
+    sessionRow.classCode, sessionRow.safeMode, sessionRow.status,
+    sessionRow.currentQuestionId, sessionRow.currentState,
+    sessionRow.createdAt, sessionRow.startedAt, sessionRow.endedAt
   ];
-
   if (rowIndex > 0) {
     sheet.getRange(rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
   } else {
@@ -69,16 +59,11 @@ function SheetAdapter_loadSession(sessionId) {
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === sessionId) {
       return {
-        sessionId:         data[i][0],
-        presentationId:    data[i][1],
-        teacherEmail:      data[i][2],
-        classCode:         data[i][3],
-        safeMode:          data[i][4],
-        status:            data[i][5],
-        currentQuestionId: data[i][6],
-        currentState:      data[i][7],
-        createdAt:         data[i][8],
-        startedAt:         data[i][9],
+        sessionId:         data[i][0], presentationId: data[i][1],
+        teacherEmail:      data[i][2], classCode:      data[i][3],
+        safeMode:          data[i][4], status:         data[i][5],
+        currentQuestionId: data[i][6], currentState:   data[i][7],
+        createdAt:         data[i][8], startedAt:      data[i][9],
         endedAt:           data[i][10]
       };
     }
@@ -108,18 +93,12 @@ function SheetAdapter_loadQuestion(questionId) {
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === questionId) {
       return {
-        questionId:     data[i][0],
-        presentationId: data[i][1],
-        slideId:        data[i][2],
-        title:          data[i][3],
-        prompt:         data[i][4],
-        optionsJson:    data[i][5],
-        correctAnswer:  data[i][6],
-        imageFileId:    data[i][7],
-        conceptTag:     data[i][8],
-        difficulty:     data[i][9],
-        version:        data[i][10],
-        active:         data[i][11]
+        questionId:    data[i][0],  presentationId: data[i][1],
+        slideId:       data[i][2],  title:          data[i][3],
+        prompt:        data[i][4],  optionsJson:    data[i][5],
+        correctAnswer: data[i][6],  imageFileId:    data[i][7],
+        conceptTag:    data[i][8],  difficulty:     data[i][9],
+        version:       data[i][10], active:         data[i][11]
       };
     }
   }
@@ -134,31 +113,22 @@ function SheetAdapter_writeQuestion(questionRow) {
   var headers = ["questionId","presentationId","slideId","title","prompt",
                  "optionsJson","correctAnswer","imageFileId","conceptTag",
                  "difficulty","version","active"];
-  var sheet    = _SheetAdapter_getOrCreateSheet(QV_CONFIG.SHEET_TABS.QUESTIONS, headers);
-  var data     = sheet.getDataRange().getValues();
+  var sheet = _SheetAdapter_getOrCreateSheet(QV_CONFIG.SHEET_TABS.QUESTIONS, headers);
+  var data  = sheet.getDataRange().getValues();
   var rowIndex = -1;
-
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === questionRow.questionId) { rowIndex = i + 1; break; }
   }
-
   var rowValues = [
-    questionRow.questionId,
-    questionRow.presentationId,
-    questionRow.slideId,
-    questionRow.title,
-    questionRow.prompt,
+    questionRow.questionId,    questionRow.presentationId,  questionRow.slideId,
+    questionRow.title,         questionRow.prompt,
     typeof questionRow.optionsJson === 'string'
       ? questionRow.optionsJson
       : JSON.stringify(questionRow.options || {}),
-    questionRow.correctAnswer,
-    questionRow.imageFileId || '',
-    questionRow.conceptTag  || '',
-    questionRow.difficulty  || '',
-    questionRow.version     || 'v1',
-    questionRow.active !== false
+    questionRow.correctAnswer, questionRow.imageFileId || '',
+    questionRow.conceptTag || '', questionRow.difficulty || '',
+    questionRow.version || 'v1', questionRow.active !== false
   ];
-
   if (rowIndex > 0) {
     sheet.getRange(rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
   } else {
@@ -173,12 +143,8 @@ function SheetAdapter_writeParticipant(participant) {
   var headers = ["participantId","sessionId","displayCode","role","joinedAt","lastSeenAt"];
   var sheet   = _SheetAdapter_getOrCreateSheet(QV_CONFIG.SHEET_TABS.PARTICIPANTS, headers);
   sheet.appendRow([
-    participant.participantId,
-    participant.sessionId,
-    participant.displayCode,
-    participant.role,
-    participant.joinedAt,
-    participant.lastSeenAt
+    participant.participantId, participant.sessionId, participant.displayCode,
+    participant.role, participant.joinedAt, participant.lastSeenAt
   ]);
 }
 
@@ -189,14 +155,9 @@ function SheetAdapter_writeVote(voteRecord) {
   var headers = ["voteId","sessionId","questionId","participantId","round","answer","isCorrect","submittedAt"];
   var sheet   = _SheetAdapter_getOrCreateSheet(QV_CONFIG.SHEET_TABS.VOTES, headers);
   sheet.appendRow([
-    voteRecord.voteId,
-    voteRecord.sessionId,
-    voteRecord.questionId,
-    voteRecord.participantId,
-    voteRecord.round,
-    voteRecord.answer,
-    voteRecord.isCorrect,
-    voteRecord.submittedAt
+    voteRecord.voteId,  voteRecord.sessionId,     voteRecord.questionId,
+    voteRecord.participantId, voteRecord.round,   voteRecord.answer,
+    voteRecord.isCorrect,     voteRecord.submittedAt
   ]);
 }
 
@@ -212,8 +173,8 @@ function SheetAdapter_countVotes(sessionId, questionId) {
   var participants = {};
   for (var i = 1; i < data.length; i++) {
     if (data[i][1] === sessionId && data[i][2] === questionId) {
-            if (parseInt(data[i][4], 10) === 1) r1++;
-            if (parseInt(data[i][4], 10) === 2) r2++;
+      if (parseInt(data[i][4], 10) === 1) r1++;
+      if (parseInt(data[i][4], 10) === 2) r2++;
       participants[data[i][3]] = true;
     }
   }

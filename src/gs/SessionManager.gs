@@ -29,7 +29,8 @@ function Session_create(presentationId, classCode, options) {
   options = options || {};
   var safeMode         = (options.safeMode !== false);
   var allowVoteChange  = (options.allowVoteChange !== false);
-  var discussionSeconds = options.discussionSeconds || QV_CONFIG.DEFAULT_DISCUSSION_SECONDS;
+  var discussionSeconds = options.discussionSeconds ||
+                          QV_CONFIG.DEFAULT_DISCUSSION_SECONDS;
 
   var userContext  = Auth_getCurrentUserContext();
   var teacherEmail = userContext.email;
@@ -69,17 +70,20 @@ function Session_create(presentationId, classCode, options) {
 // Public API: Session_load
 // ---------------------------------------------------------------------------
 function Session_load(sessionId) {
-  if (!sessionId) { return { ok: false, error: 'MISSING_SESSION_ID' }; }
+  if (!sessionId) {
+    return { ok: false, error: 'MISSING_SESSION_ID' };
+  }
 
   // Check in-memory cache first
   if (_sessionCache[sessionId]) {
     var cached = _sessionCache[sessionId];
-    return { ok: true, session: cached.session, stateSnapshot: cached.snapshot,
+    return { ok: true, session: cached.session,
+             stateSnapshot: cached.snapshot,
              links: _buildSessionLinks(sessionId) };
   }
 
   // Try PropertiesService (fast path)
-  var props = PropertiesService.getScriptProperties();
+  var props        = PropertiesService.getScriptProperties();
   var sessionData  = props.getProperty('session_'  + sessionId);
   var snapshotData = props.getProperty('snapshot_' + sessionId);
 
@@ -87,7 +91,8 @@ function Session_load(sessionId) {
     var session  = JSON.parse(sessionData);
     var snapshot = JSON.parse(snapshotData);
     _sessionCache[sessionId] = { session: session, snapshot: snapshot };
-    return { ok: true, session: session, stateSnapshot: snapshot,
+    return { ok: true, session: session,
+             stateSnapshot: snapshot,
              links: _buildSessionLinks(sessionId) };
   }
 
@@ -99,7 +104,7 @@ function Session_load(sessionId) {
 
   // Rebuild minimal snapshot from stored currentState
   var rebuiltSnapshot = StateMachine_buildSnapshot(sessionId, sheetSession.safeMode);
-  rebuiltSnapshot.currentState      = sheetSession.currentState  || QV_STATES.IDLE;
+  rebuiltSnapshot.currentState      = sheetSession.currentState      || QV_STATES.IDLE;
   rebuiltSnapshot.currentQuestionId = sheetSession.currentQuestionId || null;
 
   // Populate cache and PropertiesService
@@ -107,7 +112,8 @@ function Session_load(sessionId) {
   props.setProperty('snapshot_' + sessionId, JSON.stringify(rebuiltSnapshot));
   _sessionCache[sessionId] = { session: sheetSession, snapshot: rebuiltSnapshot };
 
-  return { ok: true, session: sheetSession, stateSnapshot: rebuiltSnapshot,
+  return { ok: true, session: sheetSession,
+           stateSnapshot: rebuiltSnapshot,
            links: _buildSessionLinks(sessionId) };
 }
 
@@ -212,13 +218,11 @@ function Session_archive(sessionId) {
   var result   = StateMachine_apply(snapshot, QV_STATES.ARCHIVED, {});
   if (!result.ok) return result;
   snapshot = result.stateSnapshot;
-
   _saveSnapshot(sessionId, snapshot);
 
-  var session   = loaded.session;
+  var session    = loaded.session;
   session.status  = 'archived';
   session.endedAt = new Date().toISOString();
-
   SheetAdapter_updateSessionStatus(sessionId, 'archived', session.endedAt);
 
   var props = PropertiesService.getScriptProperties();
@@ -231,13 +235,13 @@ function Session_archive(sessionId) {
 // ===========================================================================
 // PRIVATE HELPERS
 // ===========================================================================
-
 function _saveSnapshot(sessionId, snapshot) {
   var props = PropertiesService.getScriptProperties();
   props.setProperty('snapshot_' + sessionId, JSON.stringify(snapshot));
   if (_sessionCache[sessionId]) {
     _sessionCache[sessionId].snapshot = snapshot;
   }
+
   // Also update Sessions sheet with current state + questionId
   var sessionData = props.getProperty('session_' + sessionId);
   if (sessionData) {

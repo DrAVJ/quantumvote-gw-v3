@@ -6,7 +6,8 @@
  *
  * INTEGRATION FIXES (Agent 5):
  *  - Vote_registerParticipant: wired SheetAdapter_writeParticipant
- *  - Vote_submit: wired SheetAdapter_writeVote + resolves isCorrect via SheetAdapter_loadQuestion
+ *  - Vote_submit: wired SheetAdapter_writeVote + resolves isCorrect via
+ *    SheetAdapter_loadQuestion
  *  - Vote_getCounts: uses SheetAdapter_countVotes for real Sheet data
  */
 
@@ -21,6 +22,7 @@ function Vote_registerParticipant(sessionId, role) {
     return { ok: false, error: 'MISSING_PARAM',
              message: 'sessionId and role are required.' };
   }
+
   if (QV_CONFIG.VALID_ROLES.indexOf(role) === -1) {
     return { ok: false, error: 'INVALID_ROLE',
              message: 'Role must be one of: ' + QV_CONFIG.VALID_ROLES.join(', ') };
@@ -69,10 +71,10 @@ function Vote_submit(sessionId, participantId, round, answer) {
   var snapshot = stateRes.stateSnapshot;
 
   var roundInt = parseInt(round, 10);
-
   if (roundInt !== snapshot.currentRound) {
     return { ok: false, error: 'WRONG_ROUND',
-             message: 'Session is in round ' + snapshot.currentRound + ', not round ' + roundInt };
+             message: 'Session is in round ' + snapshot.currentRound +
+                      ', not round ' + roundInt };
   }
 
   if (!snapshot.voteOpen) {
@@ -131,7 +133,6 @@ function Vote_getCounts(sessionId, questionId) {
     return { ok: false, error: 'MISSING_PARAM',
              message: 'sessionId and questionId required.' };
   }
-
   // Use SheetAdapter for authoritative counts
   var counts = SheetAdapter_countVotes(sessionId, questionId);
   return { ok: true, counts: counts };
@@ -140,7 +141,6 @@ function Vote_getCounts(sessionId, questionId) {
 // ===========================================================================
 // PRIVATE HELPERS
 // ===========================================================================
-
 function _generateDisplayCode() {
   var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // avoid confusing 0/O, 1/I
   var code  = '';

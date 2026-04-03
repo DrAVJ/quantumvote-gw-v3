@@ -23,29 +23,23 @@
 // e.parameter.sessionId: optional, required for most views.
 // ---------------------------------------------------------------------------
 function doGet(e) {
-  var view      = (e && e.parameter && e.parameter.view)      ? e.parameter.view      : null;
-  var sessionId = (e && e.parameter && e.parameter.sessionId) ? e.parameter.sessionId : null;
+  var view      = (e && e.parameter && e.parameter.view)
+                  ? e.parameter.view : null;
+  var sessionId = (e && e.parameter && e.parameter.sessionId)
+                  ? e.parameter.sessionId : null;
 
   // Default: teacher console
-  if (!view) {
-    return _renderTeacherConsole(sessionId);
-  }
+  if (!view) { return _renderTeacherConsole(sessionId); }
 
-  if (view === 'teacher-console') {
-    return _renderTeacherConsole(sessionId);
-  } else if (view === 'teacher-remote') {
-    return _renderTeacherRemote(sessionId);
-  } else if (view === 'student') {
-    return _renderStudent(sessionId);
-  } else if (view === 'projector') {
-    return _renderProjector(sessionId);
-  } else if (view === 'results') {
+  if      (view === 'teacher-console') { return _renderTeacherConsole(sessionId); }
+  else if (view === 'teacher-remote')  { return _renderTeacherRemote(sessionId); }
+  else if (view === 'student')         { return _renderStudent(sessionId); }
+  else if (view === 'projector')       { return _renderProjector(sessionId); }
+  else if (view === 'results')         {
     return _renderResults(sessionId, e.parameter.questionId || '');
-  } else if (view === 'admin') {
-    return _renderAdmin(sessionId);
-  } else {
-    return _renderError('UNKNOWN_VIEW', 'Unknown view: ' + view);
   }
+  else if (view === 'admin')           { return _renderAdmin(sessionId); }
+  else { return _renderError('UNKNOWN_VIEW', 'Unknown view: ' + view); }
 }
 
 // ---------------------------------------------------------------------------
@@ -62,11 +56,9 @@ function doPost(e) {
 // ===========================================================================
 
 function _renderTeacherConsole(sessionId) {
-  try { Auth_requireTeacher(); } catch (err) {
-    return _renderError('AUTH_ERROR', err.message);
-  }
+  try { Auth_requireTeacher(); } catch (err) { return _renderError('AUTH_ERROR', err.message); }
   var bootstrap = _buildBootstrap('teacher-console', sessionId);
-  var template = HtmlService.createTemplateFromFile('index');
+  var template  = HtmlService.createTemplateFromFile('index');
   template.bootstrapJson = JSON.stringify(bootstrap);
   return template.evaluate()
     .setTitle('QuantumVote — Teacher Console')
@@ -74,12 +66,10 @@ function _renderTeacherConsole(sessionId) {
 }
 
 function _renderTeacherRemote(sessionId) {
-  try { Auth_requireTeacher(); } catch (err) {
-    return _renderError('AUTH_ERROR', err.message);
-  }
+  try { Auth_requireTeacher(); } catch (err) { return _renderError('AUTH_ERROR', err.message); }
   var bootstrap = _buildBootstrap('teacher-remote', sessionId);
   // Teacher remote reuses index.html (same controls, mobile-optimised via CSS)
-  var template = HtmlService.createTemplateFromFile('index');
+  var template  = HtmlService.createTemplateFromFile('index');
   template.bootstrapJson = JSON.stringify(bootstrap);
   return template.evaluate()
     .setTitle('QuantumVote — Remote')
@@ -88,7 +78,7 @@ function _renderTeacherRemote(sessionId) {
 
 function _renderStudent(sessionId) {
   var bootstrap = _buildBootstrap('student', sessionId);
-  var template = HtmlService.createTemplateFromFile('vote');
+  var template  = HtmlService.createTemplateFromFile('vote');
   template.bootstrapJson = JSON.stringify(bootstrap);
   return template.evaluate()
     .setTitle('QuantumVote — Rösta')
@@ -98,7 +88,7 @@ function _renderStudent(sessionId) {
 function _renderProjector(sessionId) {
   var bootstrap = _buildBootstrap('projector', sessionId);
   // Projector reuses results page (read-only, no private data)
-  var template = HtmlService.createTemplateFromFile('results');
+  var template  = HtmlService.createTemplateFromFile('results');
   template.bootstrapJson = JSON.stringify(bootstrap);
   return template.evaluate()
     .setTitle('QuantumVote — Projektor')
@@ -108,7 +98,7 @@ function _renderProjector(sessionId) {
 function _renderResults(sessionId, questionId) {
   var bootstrap = _buildBootstrap('results', sessionId);
   bootstrap.questionId = questionId || null;
-  var template = HtmlService.createTemplateFromFile('results');
+  var template  = HtmlService.createTemplateFromFile('results');
   template.bootstrapJson = JSON.stringify(bootstrap);
   return template.evaluate()
     .setTitle('QuantumVote — Resultat')
@@ -116,11 +106,9 @@ function _renderResults(sessionId, questionId) {
 }
 
 function _renderAdmin(sessionId) {
-  try { Auth_requireTeacher(); } catch (err) {
-    return _renderError('AUTH_ERROR', err.message);
-  }
+  try { Auth_requireTeacher(); } catch (err) { return _renderError('AUTH_ERROR', err.message); }
   var bootstrap = _buildBootstrap('admin', sessionId);
-  var template = HtmlService.createTemplateFromFile('admin');
+  var template  = HtmlService.createTemplateFromFile('admin');
   template.bootstrapJson = JSON.stringify(bootstrap);
   return template.evaluate()
     .setTitle('QuantumVote — Admin')
@@ -139,9 +127,9 @@ function _renderAdmin(sessionId) {
 function _buildBootstrap(view, sessionId) {
   var userContext = Auth_getCurrentUserContext();
   var bootstrap = {
-    view: view,
+    view:        view,
     userContext: userContext,
-    sessionId: sessionId || null,
+    sessionId:   sessionId || null,
     config: {
       pollingIntervalActiveMs: QV_CONFIG.POLLING_INTERVAL_ACTIVE_MS,
       pollingIntervalIdleMs:   QV_CONFIG.POLLING_INTERVAL_IDLE_MS,
@@ -149,7 +137,7 @@ function _buildBootstrap(view, sessionId) {
       appVersion:              QV_CONFIG.APP_VERSION
     },
     stateSnapshot: null,
-    error: null
+    error:         null
   };
 
   if (sessionId) {
@@ -160,6 +148,7 @@ function _buildBootstrap(view, sessionId) {
       bootstrap.error = loaded.error || 'SESSION_NOT_FOUND';
     }
   }
+
   return bootstrap;
 }
 
@@ -168,10 +157,9 @@ function _buildBootstrap(view, sessionId) {
  * Returns a simple error page.
  */
 function _renderError(errorCode, message) {
-  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>' +
-    '<body style="font-family:sans-serif;padding:20px">' +
-    '<h2>Fel: ' + errorCode + '</h2>' +
-    '<p>' + message + '</p>' +
-    '</body></html>';
+  var html = '<html><body style="font-family:monospace;padding:2em">'
+           + '<h2>Error: ' + errorCode + '</h2>'
+           + '<p>' + message + '</p>'
+           + '</body></html>';
   return HtmlService.createHtmlOutput(html).setTitle('QuantumVote — Fel');
 }
