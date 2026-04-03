@@ -3,28 +3,169 @@
   FILE: src/html/vote.html
   PROJECT: QuantumVote GW v3
   OWNER: Agent 3 (Frontend & HTML)
-  PURPOSE: Student voting interface – displays question + A/B/C/D buttons
+  PURPOSE: Student Vote App - Mobile-first voting interface.
   CONTRACT: API_CONTRACT_v1.md
-  STATUS: PLACEHOLDER – implementation reserved for Agent 3
 -->
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rösta – QuantumVote GW v3</title>
-  <!-- TODO (Agent 3): Add CSS styles, mobile-first responsive design -->
+  <title>Rösta - QuantumVote GW v3</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 15px; background: #fafafa; color: #333; }
+    .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    h1 { font-size: 1.5rem; margin-top: 0; }
+    .status-badge { display: inline-block; padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; margin-bottom: 15px; }
+    .status-waiting { background: #ffeeba; color: #856404; }
+    .status-active { background: #d4edda; color: #155724; }
+    .status-closed { background: #f8d7da; color: #721c24; }
+    .vote-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
+    .vote-btn { aspect-ratio: 1/1; font-size: 2rem; font-weight: bold; border: 2px solid #007bff; border-radius: 12px; background: white; color: #007bff; cursor: pointer; transition: 0.2s; }
+    .vote-btn:active { background: #007bff; color: white; }
+    .vote-btn.selected { background: #007bff; color: white; }
+    .vote-btn:disabled { border-color: #ccc; color: #ccc; cursor: not-allowed; }
+    #message { margin-top: 20px; font-weight: bold; text-align: center; }
+    .hidden { display: none; }
+    .loader { text-align: center; padding: 40px; }
+  </style>
 </head>
 <body>
-  <h1>Rösta</h1>
-  <p>PLACEHOLDER – implementation reserved for Agent 3</p>
-  <!--
-    TODO (Agent 3): Implement
-    - Fetch question from ?action=getQuestion via API_CONTRACT_v1.md
-    - Display question text and A/B/C/D options as buttons
-    - Submit vote via POST to ?action=vote
-    - Show confirmation after vote
-    - Handle state=IDLE (show waiting message)
-    - Handle state=RESULTS (redirect to results.html)
-  -->
+  <div class="card">
+    <div id="loading" class="loader">Laddar session...</div>
+    
+    <div id="mainView" class="hidden">
+      <div id="statusBadge" class="status-badge">Väntar...</div>
+      <h1 id="questionTitle">Väntar på fråga</h1>
+      <p id="questionPrompt"></p>
+      
+      <div id="votingArea" class="hidden">
+        <div class="vote-buttons">
+          <button class="vote-btn" onclick="submitVote('A')">A</button>
+          <button class="vote-btn" onclick="submitVote('B')">B</button>
+          <button class="vote-btn" onclick="submitVote('C')">C</button>
+          <button class="vote-btn" onclick="submitVote('D')">D</button>
+        </div>
+      </div>
+
+      <div id="feedbackArea" class="hidden">
+        <p id="message"></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let sessionId = new URLSearchParams(window.location.search).get('sessionId');
+    let participantId = null;
+    let currentRound = 0;
+    let hasVoted = false;
+    let lastVotedAnswer = null;
+
+    function init() {
+      if(!sessionId) {
+        document.getElementById('loading').innerText = "Ingen session angiven.";
+        return;
+      }
+      
+      google.script.run
+        .withSuccessHandler(res => {
+          if(res.ok) {
+            participantId = res.participantId;
+            startPolling();
+          } else {
+            alert("Kunde inte registrera deltagare.");
+          }
+        })
+        .Vote_registerParticipant(sessionId, "student");
+    }
+
+    function startPolling() {
+      setInterval(fetchState, 2000);
+      fetchState();
+    }
+
+    function fetchState() {
+      google.script.run
+        .withSuccessHandler(res => {
+          if(res.ok) {
+            updateUI(res.stateSnapshot);
+          }
+        })
+        .Session_getState(sessionId);
+    }
+
+    function updateUI(snapshot) {
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('mainView').classList.remove('hidden');
+
+      const state = snapshot.currentState;
+      const round = (state === 3 || state === 4) ? 1 : (state === 7 || state === 8) ? 2 : 0;
+      
+      // Reset vote state if round changes
+      if(round !== currentRound) {
+        currentRound = round;
+        hasVoted = false;
+        lastVotedAnswer = null;
+        document.querySelectorAll('.vote-btn').forEach(b => b.classList.remove('selected'));
+      }
+
+      const badge = document.getElementById('statusBadge');
+      const votingArea = document.getElementById('votingArea');
+      const feedbackArea = document.getElementById('feedbackArea');
+      const msg = document.getElementById('message');
+
+      if(state === 3 || state === 7) {
+        badge.innerText = "OMRÖSTNING PÅGÅR (Omgång " + (state === 3 ? 1 : 2) + ")";
+        badge.className = "status-badge status-active";
+        votingArea.classList.remove('hidden');
+        feedbackArea.classList.add('hidden');
+        
+        if(hasVoted) {
+          votingArea.classList.add('hidden');
+          feedbackArea.classList.remove('hidden');
+          msg.innerText = "Röst registrerad: " + lastVotedAnswer;
+        }
+      } else if(state === 4 || state === 8) {
+        badge.innerText = "RÖSTNING STÄNGD";
+        badge.className = "status-badge status-closed";
+        votingArea.classList.add('hidden');
+        feedbackArea.classList.remove('hidden');
+        msg.innerText = hasVoted ? "Väntar på nästa fas..." : "Du hann tyvärr inte rösta.";
+      } else if(state === 5) {
+        badge.innerText = "DISKUSSION";
+        badge.className = "status-badge status-waiting";
+        votingArea.classList.add('hidden');
+        feedbackArea.classList.remove('hidden');
+        msg.innerText = "Diskutera med din granne!";
+      } else if(state === 9) {
+        // Redirect to results or show simple result summary
+        window.location.href = "?view=results&sessionId=" + sessionId;
+      } else {
+        badge.innerText = "VÄNTAR";
+        badge.className = "status-badge status-waiting";
+        votingArea.classList.add('hidden');
+        feedbackArea.classList.remove('hidden');
+        msg.innerText = "Väntar på läraren...";
+      }
+    }
+
+    function submitVote(answer) {
+      if(hasVoted) return;
+      
+      google.script.run
+        .withSuccessHandler(res => {
+          if(res.ok && res.accepted) {
+            hasVoted = true;
+            lastVotedAnswer = answer;
+            document.querySelectorAll('.vote-btn').forEach(b => {
+              if(b.innerText === answer) b.classList.add('selected');
+            });
+            fetchState();
+          }
+        })
+        .Vote_submit(sessionId, participantId, currentRound, answer);
+    }
+
+    window.onload = init;
+  </script>
 </body>
 </html>

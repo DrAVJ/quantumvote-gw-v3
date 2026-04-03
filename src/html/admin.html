@@ -3,28 +3,83 @@
   FILE: src/html/admin.html
   PROJECT: QuantumVote GW v3
   OWNER: Agent 3 (Frontend & HTML)
-  PURPOSE: Admin control panel – session management, state transitions
-  CONTRACT: API_CONTRACT_v1.md (admin endpoints)
-  STATUS: PLACEHOLDER – implementation reserved for Agent 3
-  ACCESS: Requires admin Google account (enforced by Auth.gs)
+  PURPOSE: Admin/Bootstrap View - Technical debug and system verification.
+  CONTRACT: API_CONTRACT_v1.md
 -->
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin – QuantumVote GW v3</title>
-  <!-- TODO (Agent 3): Add CSS styles -->
+  <title>Admin - QuantumVote GW v3</title>
+  <style>
+    body { font-family: monospace; margin: 20px; background: #222; color: #0f0; }
+    .debug-panel { border: 1px solid #0f0; padding: 15px; border-radius: 4px; }
+    .json-view { background: #000; padding: 10px; border: 1px dashed #0f0; overflow: auto; max-height: 400px; }
+    button { background: #0f0; color: #000; border: none; padding: 10px; cursor: pointer; margin: 5px; }
+    h2 { border-bottom: 1px solid #0f0; }
+    .label { font-weight: bold; color: #ff0; }
+  </style>
 </head>
 <body>
-  <h1>Adminpanel</h1>
-  <p>PLACEHOLDER – implementation reserved for Agent 3</p>
-  <!--
-    TODO (Agent 3): Implement admin panel with
-    - Session status display (current state from StateMachine)
-    - Buttons: Öppna fråga | Starta röstning | Visa resultat | Återställ
-    - Live result preview
-    - State transition calls via API_CONTRACT_v1.md admin endpoints
-    - Auth guard: verify admin before showing controls
-  -->
+  <div class="debug-panel">
+    <h1>System Debug / Admin</h1>
+    
+    <section>
+      <h2>Auth Context</h2>
+      <div id="authView" class="json-view">Hämtar...</div>
+    </section>
+
+    <section>
+      <h2>Bootstrap Data</h2>
+      <div id="bootstrapView" class="json-view">Hämtar...</div>
+    </section>
+
+    <section>
+      <h2>Session Status</h2>
+      <input type="text" id="sid" placeholder="Session ID">
+      <button onclick="checkSession()">Check</button>
+      <div id="sessionView" class="json-view">Ingen session vald.</div>
+    </section>
+
+    <section>
+      <h2>System Actions</h2>
+      <button onclick="runImport()">Import Questions (Slides)</button>
+      <button onclick="location.reload()">Refresh Page</button>
+    </section>
+  </div>
+
+  <script>
+    function init() {
+      google.script.run
+        .withSuccessHandler(ctx => {
+          document.getElementById('authView').innerText = JSON.stringify(ctx, null, 2);
+        })
+        .Auth_getCurrentUserContext();
+      
+      // Bootstrap data from template could be here
+      // document.getElementById('bootstrapView').innerText = JSON.stringify(window.BOOTSTRAP_DATA, null, 2);
+    }
+
+    function checkSession() {
+      const id = document.getElementById('sid').value;
+      google.script.run
+        .withSuccessHandler(res => {
+          document.getElementById('sessionView').innerText = JSON.stringify(res, null, 2);
+        })
+        .Session_load(id);
+    }
+
+    function runImport() {
+      const presId = prompt("Ange Presentation ID:");
+      if(!presId) return;
+      google.script.run
+        .withSuccessHandler(res => {
+          alert("Import klar: " + JSON.stringify(res));
+        })
+        .Slides_importQuestionsFromPresentation(presId);
+    }
+
+    window.onload = init;
+  </script>
 </body>
 </html>
