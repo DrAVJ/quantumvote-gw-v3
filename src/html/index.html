@@ -177,7 +177,7 @@
       var s = snapshot.currentState;
 
       // Enable/disable buttons according to state machine
-      document.getElementById('btnNextQ').disabled        = (s === ST.IDLE || s === ST.ARCHIVED);
+      document.getElementById('btnNextQ').disabled = (s === ST.ARCHIVED);
       document.getElementById('btnPrevQ').disabled        = (s === ST.IDLE || s === ST.ARCHIVED);
       document.getElementById('btnStartR1').disabled      = (s !== ST.QUESTION_READY);
       document.getElementById('btnCloseR1').disabled      = (s !== ST.VOTING_R1);
