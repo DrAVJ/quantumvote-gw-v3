@@ -21,14 +21,15 @@ var _sessionCache = {};
 function Session_create(presentationId, classCode, options) {
   Auth_requireTeacher();
 
-  if (!presentationId || !classCode) {
+  // presentationId är valfritt sedan Questions-bladet är primär datakälla
+  if (!classCode) {
     return { ok: false, error: 'MISSING_PARAM',
-             message: 'presentationId and classCode are required.' };
+             message: 'classCode is required.' };
   }
 
   options = options || {};
-  var safeMode         = (options.safeMode !== false);
-  var allowVoteChange  = (options.allowVoteChange !== false);
+  var safeMode          = (options.safeMode !== false);
+  var allowVoteChange   = (options.allowVoteChange !== false);
   var discussionSeconds = options.discussionSeconds ||
                           QV_CONFIG.DEFAULT_DISCUSSION_SECONDS;
 
@@ -39,7 +40,7 @@ function Session_create(presentationId, classCode, options) {
 
   var sessionRow = {
     sessionId:         sessionId,
-    presentationId:    presentationId,
+    presentationId:    presentationId || null,   // bevaras för bakåtkompatibilitet
     teacherEmail:      teacherEmail,
     classCode:         classCode,
     safeMode:          safeMode,
@@ -65,7 +66,6 @@ function Session_create(presentationId, classCode, options) {
 
   return { ok: true, sessionId: sessionId, stateSnapshot: snapshot };
 }
-
 // ---------------------------------------------------------------------------
 // Public API: Session_load
 // ---------------------------------------------------------------------------
