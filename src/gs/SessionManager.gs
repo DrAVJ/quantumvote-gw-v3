@@ -127,10 +127,12 @@ function Session_activateQuestion(sessionId, questionId) {
 
   var snapshot = loaded.stateSnapshot;
 
-  // Get real slideId from SheetAdapter
+  // NYTT — matchar nytt returformat { ok, question }
   var slideId = questionId; // fallback
-  var q = SheetAdapter_loadQuestion(questionId);
-  if (q && q.slideId) { slideId = q.slideId; }
+  var qResult = SheetAdapter_loadQuestion(questionId);
+  if (qResult.ok && qResult.question && qResult.question.slideId) {
+    slideId = qResult.question.slideId;
+  }
 
   snapshot.currentQuestionId = questionId;
   snapshot.currentSlideId    = slideId;
