@@ -89,10 +89,11 @@ function Vote_submit(sessionId, participantId, round, answer) {
 
   // Resolve correctAnswer from SheetAdapter to set isCorrect
   var isCorrect = null;
-  var q = SheetAdapter_loadQuestion(snapshot.currentQuestionId);
-  if (q && q.correctAnswer) {
-    isCorrect = (answer === q.correctAnswer);
+  var qResult = SheetAdapter_loadQuestion(snapshot.currentQuestionId);
+  if (qResult.ok && qResult.question && qResult.question.correctAnswer) {
+    isCorrect = (answer === qResult.question.correctAnswer);
   }
+
 
   var voteId = 'vote_' + Utilities.getUuid();
   var now    = new Date().toISOString();
